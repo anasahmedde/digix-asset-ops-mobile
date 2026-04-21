@@ -1,0 +1,46 @@
+{
+  "expo": {
+    "name": "DIGIX Field",
+    "slug": "digix-field",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "icon": "./assets/icon.png",
+    "scheme": "digix",
+    "userInterfaceStyle": "light",
+    "splash": {
+      "backgroundColor": "#2563eb"
+    },
+    "ios": {
+      "supportsTablet": false,
+      "bundleIdentifier": "com.digix.field",
+      "infoPlist": {
+        "NSLocationWhenInUseUsageDescription": "DIGIX needs your location for attendance check-in and field tracking.",
+        "NSLocationAlwaysUsageDescription": "DIGIX tracks your location during work hours for dispatching and route logging.",
+        "NSCameraUsageDescription": "DIGIX needs camera access to capture installation photos and scan QR codes."
+      }
+    },
+    "android": {
+      "adaptiveIcon": {
+        "backgroundColor": "#2563eb"
+      },
+      "package": "com.digix.field",
+      "permissions": [
+        "ACCESS_FINE_LOCATION",
+        "ACCESS_COARSE_LOCATION",
+        "ACCESS_BACKGROUND_LOCATION",
+        "CAMERA"
+      ]
+    },
+    "plugins": [
+      "expo-router",
+      "expo-camera",
+      [
+        "expo-location",
+        {
+          "locationAlwaysAndWhenInUsePermission": "DIGIX tracks your location during work hours."
+        }
+      ],
+      "expo-secure-store"
+    ]
+  }
+}
