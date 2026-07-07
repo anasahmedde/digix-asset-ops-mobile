@@ -8,6 +8,12 @@ export async function requestLocationPermissions(): Promise<boolean> {
   return background === "granted";
 }
 
+/** Foreground-only permission — sufficient for a one-off check-in / scan. */
+export async function requestForegroundLocationPermission(): Promise<boolean> {
+  const { status } = await Location.requestForegroundPermissionsAsync();
+  return status === "granted";
+}
+
 export async function getCurrentLocation() {
   const location = await Location.getCurrentPositionAsync({
     accuracy: Location.Accuracy.High,
