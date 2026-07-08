@@ -10,7 +10,10 @@ export function TicketCard({ ticket, onPress }: { ticket: Ticket; onPress?: () =
   return (
     <Card onPress={onPress} style={styles.card}>
       <View style={styles.top}>
-        <Text style={styles.title} numberOfLines={2}>{ticket.title}</Text>
+        <View style={{ flex: 1 }}>
+          {ticket.ticket_number ? <Text style={styles.number}>{ticket.ticket_number}</Text> : null}
+          <Text style={styles.title} numberOfLines={2}>{ticket.title}</Text>
+        </View>
         <StatusPill status={ticket.status} />
       </View>
 
@@ -54,7 +57,8 @@ export function TicketCard({ ticket, onPress }: { ticket: Ticket; onPress?: () =
 const styles = StyleSheet.create({
   card: { marginBottom: spacing.md, gap: spacing.sm },
   top: { flexDirection: "row", alignItems: "flex-start", justifyContent: "space-between", gap: spacing.sm },
-  title: { flex: 1, fontSize: font.body, fontWeight: "700", color: colors.text, lineHeight: 20 },
+  number: { fontSize: font.xs, fontWeight: "700", color: colors.primary, marginBottom: 2 },
+  title: { fontSize: font.body, fontWeight: "700", color: colors.text, lineHeight: 20 },
   metaRow: { flexDirection: "row", alignItems: "center", gap: spacing.sm },
   category: { fontSize: font.sm, color: colors.textMuted, fontWeight: "500" },
   sub: { flexDirection: "row", flexWrap: "wrap", gap: spacing.md },

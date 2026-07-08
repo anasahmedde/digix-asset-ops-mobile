@@ -123,7 +123,7 @@ export default function TicketDetailScreen() {
 
   return (
     <>
-      <Stack.Screen options={{ title: `#${String(ticket.id).slice(0, 8)}` }} />
+      <Stack.Screen options={{ title: ticket.ticket_number || `#${String(ticket.id).slice(0, 8)}` }} />
       <View style={styles.flex}>
         <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
           {/* Title */}
