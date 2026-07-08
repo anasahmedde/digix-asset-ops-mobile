@@ -12,6 +12,7 @@ export interface User {
 
 export interface Ticket {
   id: string;
+  ticket_number?: string;
   title: string;
   description?: string;
   status: string;
