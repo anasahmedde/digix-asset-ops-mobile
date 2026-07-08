@@ -8,6 +8,8 @@
     "scheme": "digix",
     "userInterfaceStyle": "light",
     "splash": {
+      "image": "./assets/splash-icon.png",
+      "resizeMode": "contain",
       "backgroundColor": "#2563eb"
     },
     "ios": {
@@ -20,7 +22,9 @@
       }
     },
     "android": {
+      "versionCode": 1,
       "adaptiveIcon": {
+        "foregroundImage": "./assets/adaptive-icon.png",
         "backgroundColor": "#2563eb"
       },
       "package": "com.digix.field",
