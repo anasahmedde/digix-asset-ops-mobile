@@ -3,6 +3,9 @@ import * as SecureStore from "expo-secure-store";
 
 const API_URL = process.env.EXPO_PUBLIC_API_URL || "http://localhost:8000/api";
 
+/** Origin without the trailing /api — used to resolve media (image) URLs. */
+export const API_ORIGIN = API_URL.replace(/\/api\/?$/, "");
+
 const api = axios.create({
   baseURL: API_URL,
   headers: { "Content-Type": "application/json" },

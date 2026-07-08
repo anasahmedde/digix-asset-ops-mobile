@@ -1,90 +1,77 @@
+import { Ionicons } from "@expo/vector-icons";
+import { router } from "expo-router";
 import { useEffect, useState } from "react";
-import { ActivityIndicator, StyleSheet, Text, TouchableOpacity, View } from "react-native";
+import { Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
+import { SafeAreaView } from "react-native-safe-area-context";
 
+import { Avatar, Button, Card, Loading, Row } from "@/components/ui";
+import { colors, font, radius, spacing } from "@/constants/theme";
 import { logout } from "@/lib/auth";
 import { ROLE_LABELS, User } from "@/lib/types";
 import { getCurrentUser } from "@/lib/user";
+
+type IconName = keyof typeof Ionicons.glyphMap;
+const MENU: { label: string; icon: IconName; href: string; tint: string }[] = [
+  { label: "Attendance", icon: "time-outline", href: "/attendance", tint: colors.success },
+  { label: "Site Visits", icon: "map-outline", href: "/visits", tint: colors.violet },
+  { label: "Notifications", icon: "notifications-outline", href: "/notifications", tint: colors.warning },
+  { label: "Messages", icon: "chatbubbles-outline", href: "/(tabs)/messages", tint: colors.primary },
+];
 
 export default function ProfileScreen() {
   const [user, setUser] = useState<User | null>(null);
   const [loading, setLoading] = useState(true);
 
-  useEffect(() => {
-    getCurrentUser()
-      .then(setUser)
-      .catch(() => {})
-      .finally(() => setLoading(false));
-  }, []);
+  useEffect(() => { getCurrentUser().then(setUser).catch(() => {}).finally(() => setLoading(false)); }, []);
 
-  if (loading) {
-    return (
-      <View style={styles.center}>
-        <ActivityIndicator color="#2563eb" />
-      </View>
-    );
-  }
-
-  const initials =
-    user?.full_name?.trim()?.split(/\s+/).map((p) => p[0]).slice(0, 2).join("").toUpperCase() ||
-    user?.username?.slice(0, 2).toUpperCase() ||
-    "?";
+  if (loading) return <Loading />;
 
   return (
-    <View style={styles.container}>
-      <View style={styles.avatar}>
-        <Text style={styles.avatarText}>{initials}</Text>
-      </View>
-      <Text style={styles.name}>{user?.full_name || user?.username || "—"}</Text>
-      {user?.role ? (
-        <View style={styles.roleBadge}>
-          <Text style={styles.roleText}>{ROLE_LABELS[user.role] ?? user.role}</Text>
+    <SafeAreaView style={styles.safe} edges={["top"]}>
+      <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
+        <View style={styles.head}>
+          <Avatar name={user?.full_name || user?.username} size={84} />
+          <Text style={styles.name}>{user?.full_name || user?.username || "—"}</Text>
+          {user?.role ? <View style={styles.roleBadge}><Text style={styles.roleText}>{ROLE_LABELS[user.role] ?? user.role}</Text></View> : null}
         </View>
-      ) : null}
 
-      <View style={styles.card}>
-        <Row label="Username" value={user?.username ?? "—"} />
-        <Row label="Email" value={user?.email || "—"} />
-        <Row label="Phone" value={user?.phone || "—"} />
-        <Row label="Field staff" value={user?.is_field_staff ? "Yes" : "No"} />
-      </View>
+        <Card style={{ marginTop: spacing.xl }}>
+          <Row label="Username" value={user?.username || "—"} />
+          <Row label="Email" value={user?.email || "—"} />
+          <Row label="Phone" value={user?.phone || "—"} />
+          <Row label="Field staff" value={user?.is_field_staff ? "Yes" : "No"} />
+        </Card>
 
-      <TouchableOpacity style={styles.logoutButton} onPress={logout}>
-        <Text style={styles.logoutText}>Sign Out</Text>
-      </TouchableOpacity>
-    </View>
-  );
-}
+        <Text style={styles.section}>Shortcuts</Text>
+        <View style={styles.menu}>
+          {MENU.map((m, i) => (
+            <Pressable key={m.label} style={[styles.menuRow, i < MENU.length - 1 && styles.menuBorder]} onPress={() => router.push(m.href as never)}>
+              <View style={[styles.menuIcon, { backgroundColor: m.tint + "1a" }]}><Ionicons name={m.icon} size={18} color={m.tint} /></View>
+              <Text style={styles.menuLabel}>{m.label}</Text>
+              <Ionicons name="chevron-forward" size={18} color={colors.textLight} />
+            </Pressable>
+          ))}
+        </View>
 
-function Row({ label, value }: { label: string; value: string }) {
-  return (
-    <View style={styles.row}>
-      <Text style={styles.rowLabel}>{label}</Text>
-      <Text style={styles.rowValue}>{value}</Text>
-    </View>
+        <Button title="Sign Out" icon="log-out-outline" variant="danger" onPress={logout} style={{ marginTop: spacing.xl }} />
+        <Text style={styles.version}>DIGIX Field · v1.0.0</Text>
+      </ScrollView>
+    </SafeAreaView>
   );
 }
 
 const styles = StyleSheet.create({
-  center: { flex: 1, justifyContent: "center", alignItems: "center" },
-  container: { flex: 1, alignItems: "center", padding: 24, backgroundColor: "#f5f5f5" },
-  avatar: {
-    width: 84, height: 84, borderRadius: 42, backgroundColor: "#2563eb",
-    justifyContent: "center", alignItems: "center", marginTop: 24,
-  },
-  avatarText: { color: "#fff", fontSize: 30, fontWeight: "bold" },
-  name: { fontSize: 20, fontWeight: "bold", color: "#111", marginTop: 14 },
-  roleBadge: { backgroundColor: "#2563eb22", borderRadius: 999, paddingHorizontal: 14, paddingVertical: 4, marginTop: 8 },
-  roleText: { color: "#2563eb", fontSize: 13, fontWeight: "600" },
-  card: {
-    width: "100%", backgroundColor: "#fff", borderRadius: 16, padding: 8, marginTop: 28,
-    borderWidth: 1, borderColor: "#eee",
-  },
-  row: { flexDirection: "row", justifyContent: "space-between", paddingVertical: 12, paddingHorizontal: 12, borderBottomWidth: 1, borderBottomColor: "#f2f2f2" },
-  rowLabel: { fontSize: 14, color: "#888" },
-  rowValue: { fontSize: 14, color: "#111", fontWeight: "600" },
-  logoutButton: {
-    borderWidth: 1, borderColor: "#dc2626", borderRadius: 12,
-    paddingVertical: 14, paddingHorizontal: 40, marginTop: "auto", marginBottom: 12,
-  },
-  logoutText: { color: "#dc2626", fontSize: 16, fontWeight: "600" },
+  safe: { flex: 1, backgroundColor: colors.bg },
+  content: { padding: spacing.lg, paddingBottom: spacing.xxxl },
+  head: { alignItems: "center", marginTop: spacing.lg },
+  name: { fontSize: font.h2, fontWeight: "800", color: colors.text, marginTop: spacing.md },
+  roleBadge: { backgroundColor: colors.primarySoft, borderRadius: radius.pill, paddingHorizontal: 14, paddingVertical: 5, marginTop: spacing.sm },
+  roleText: { color: colors.primary, fontSize: font.sm, fontWeight: "700" },
+  section: { fontSize: font.sm, fontWeight: "700", color: colors.textMuted, textTransform: "uppercase", letterSpacing: 0.4, marginTop: spacing.xl, marginBottom: spacing.sm, marginLeft: 4 },
+  menu: { backgroundColor: colors.card, borderRadius: radius.lg, borderWidth: StyleSheet.hairlineWidth, borderColor: colors.border, overflow: "hidden" },
+  menuRow: { flexDirection: "row", alignItems: "center", gap: spacing.md, paddingHorizontal: spacing.lg, paddingVertical: spacing.md },
+  menuBorder: { borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: colors.border },
+  menuIcon: { width: 34, height: 34, borderRadius: 10, alignItems: "center", justifyContent: "center" },
+  menuLabel: { flex: 1, fontSize: font.body, fontWeight: "600", color: colors.text },
+  version: { textAlign: "center", fontSize: font.xs, color: colors.textLight, marginTop: spacing.xl },
 });

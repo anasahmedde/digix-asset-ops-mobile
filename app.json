@@ -48,7 +48,9 @@
           "locationAlwaysAndWhenInUsePermission": "DIGIX tracks your location during work hours."
         }
       ],
-      "expo-secure-store"
+      "expo-secure-store",
+      "expo-asset",
+      "expo-font"
     ],
     "extra": {
       "router": {
