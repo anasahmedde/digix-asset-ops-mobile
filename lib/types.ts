@@ -90,6 +90,7 @@ export interface Site {
 export interface ChatRoom {
   id: string;
   name: string;
+  display_name?: string;
   room_type: "direct" | "group";
   participants: string[];
   participant_names: string[];
