@@ -17,9 +17,46 @@ export interface Ticket {
   status: string;
   priority: string;
   category: string;
+  site?: string | null;
   site_name?: string | null;
+  device?: string | null;
   device_code?: string | null;
+  assigned_to?: string | null;
+  assigned_to_name?: string | null;
+  reported_by?: string | null;
+  reported_by_name?: string | null;
   due_date?: string | null;
+  completion_notes?: string;
+  blocked_reason?: string;
+  hold_reason?: string;
+  review_comments?: string;
+  attachment_count?: number;
+  comment_count?: number;
+  attachments?: TicketAttachment[];
+  comments?: TicketComment[];
+  created_at: string;
+  updated_at?: string;
+}
+
+export interface TicketComment {
+  id: string;
+  ticket: string;
+  author: string | null;
+  author_name: string | null;
+  content: string;
+  comment_type: string;
+  old_status?: string;
+  new_status?: string;
+  created_at: string;
+}
+
+export interface TicketAttachment {
+  id: string;
+  ticket: string;
+  uploaded_by_name: string | null;
+  file: string;
+  caption: string;
+  attachment_type: string;
   created_at: string;
 }
 
@@ -45,6 +82,43 @@ export interface Site {
   latitude?: number | null;
   longitude?: number | null;
   device_count?: number;
+  contact_person?: string;
+  contact_phone?: string;
+}
+
+export interface ChatRoom {
+  id: string;
+  name: string;
+  room_type: "direct" | "group";
+  participants: string[];
+  participant_names: string[];
+  last_message: ChatMessage | null;
+  unread_count: number;
+  is_active: boolean;
+  created_at: string;
+}
+
+export interface ChatMessage {
+  id: string;
+  room: string;
+  sender: string;
+  sender_name: string;
+  content: string;
+  message_type: string;
+  file_url?: string;
+  created_at: string;
+}
+
+export interface AppNotification {
+  id: string;
+  notification_type: string;
+  title: string;
+  message: string;
+  ticket?: string | null;
+  data?: Record<string, unknown>;
+  is_read: boolean;
+  is_actionable?: boolean;
+  created_at: string;
 }
 
 export const ROLE_LABELS: Record<string, string> = {
@@ -57,26 +131,7 @@ export const ROLE_LABELS: Record<string, string> = {
   client_viewer: "Client Viewer",
 };
 
-export const STATUS_COLORS: Record<string, string> = {
-  open: "#3b82f6",
-  in_progress: "#f59e0b",
-  on_hold: "#6b7280",
-  blocked: "#ef4444",
-  pending_review: "#8b5cf6",
-  approved: "#10b981",
-  rejected: "#ef4444",
-  closed: "#6b7280",
-  active: "#10b981",
-  installed: "#10b981",
-  under_maintenance: "#f59e0b",
-  in_stock: "#3b82f6",
-  decommissioned: "#6b7280",
-  lost_stolen: "#ef4444",
-};
-
-export function labelize(value: string): string {
-  return value
-    .split("_")
-    .map((w) => w.charAt(0).toUpperCase() + w.slice(1))
-    .join(" ");
+export function labelize(value?: string | null): string {
+  if (!value) return "—";
+  return value.split("_").map((w) => w.charAt(0).toUpperCase() + w.slice(1)).join(" ");
 }

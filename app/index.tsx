@@ -8,7 +8,7 @@ export default function Index() {
   useEffect(() => {
     (async () => {
       const authed = await isAuthenticated();
-      router.replace(authed ? "/(tabs)/tickets" : "/(auth)/login");
+      router.replace(authed ? "/(tabs)" : "/(auth)/login");
     })();
   }, []);
 
