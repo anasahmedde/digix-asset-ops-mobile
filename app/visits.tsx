@@ -42,7 +42,7 @@ export default function VisitsScreen() {
           <View style={styles.footer}>
             <View style={styles.badge}><Ionicons name="tv-outline" size={13} color={colors.primary} /><Text style={styles.badgeText}>{item.device_count ?? 0} assets</Text></View>
             {item.latitude != null && item.longitude != null ? (
-              <Text style={styles.geo}>{item.latitude.toFixed(3)}, {item.longitude.toFixed(3)}</Text>
+              <Text style={styles.geo}>{Number(item.latitude).toFixed(3)}, {Number(item.longitude).toFixed(3)}</Text>
             ) : null}
           </View>
         </Card>

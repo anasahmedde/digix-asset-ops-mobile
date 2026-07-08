@@ -52,7 +52,7 @@ export default function MessagesScreen() {
           refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => { setRefreshing(true); load(); }} />}
           ListEmptyComponent={<EmptyState icon="chatbubbles-outline" title="No conversations" subtitle="Start a message with a teammate using the button below." />}
           renderItem={({ item }) => {
-            const name = roomName(item);
+            const name = item.display_name || roomName(item);
             return (
               <Pressable style={styles.room} onPress={() => router.push(`/chat/${item.id}?name=${encodeURIComponent(name)}`)}>
                 <Avatar name={name} size={48} color={item.room_type === "group" ? colors.violet : colors.primary} />
