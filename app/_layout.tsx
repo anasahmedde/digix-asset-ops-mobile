@@ -47,6 +47,11 @@ export default function RootLayout() {
         <Stack.Screen name="admin/purchase-order/[id]" options={{ ...headerStyle, title: "Purchase Order" }} />
         <Stack.Screen name="admin/suppliers" options={{ ...headerStyle, title: "Vendors" }} />
         <Stack.Screen name="admin/maintenance" options={{ ...headerStyle, title: "Maintenance" }} />
+        <Stack.Screen name="admin/teams" options={{ ...headerStyle, title: "Teams" }} />
+        <Stack.Screen name="admin/projects" options={{ ...headerStyle, title: "Projects" }} />
+        <Stack.Screen name="admin/project/[id]" options={{ ...headerStyle, title: "Project" }} />
+        <Stack.Screen name="admin/warranties" options={{ ...headerStyle, title: "Warranties" }} />
+        <Stack.Screen name="admin/reports" options={{ ...headerStyle, title: "Reports" }} />
       </Stack>
     </>
   );

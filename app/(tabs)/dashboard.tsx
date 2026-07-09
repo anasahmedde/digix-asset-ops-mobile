@@ -34,14 +34,14 @@ const MODULES: Module[] = [
   { key: "maintenance", label: "Maintenance", icon: "construct-outline", tint: "#f97316", roles: ["super_admin", "ops_manager", "technician"], target: { native: "/admin/maintenance" } },
   { key: "inventory", label: "Inventory", icon: "cube-outline", tint: "#22c55e", roles: ["super_admin", "ops_manager", "warehouse"], target: { native: "/admin/inventory" } },
   { key: "procurement", label: "Procurement", icon: "cart-outline", tint: "#ef4444", roles: ["super_admin", "ops_manager", "finance"], target: { native: "/admin/procurement" } },
-  { key: "warranties", label: "Warranties", icon: "shield-checkmark-outline", tint: "#10b981", roles: ["super_admin", "ops_manager"], target: { web: "/warranties", title: "Warranties" } },
-  { key: "projects", label: "Projects", icon: "clipboard-outline", tint: "#6366f1", roles: ["super_admin", "ops_manager"], target: { web: "/projects", title: "Projects" } },
+  { key: "warranties", label: "Warranties", icon: "shield-checkmark-outline", tint: "#10b981", roles: ["super_admin", "ops_manager"], target: { native: "/admin/warranties" } },
+  { key: "projects", label: "Projects", icon: "clipboard-outline", tint: "#6366f1", roles: ["super_admin", "ops_manager"], target: { native: "/admin/projects" } },
   { key: "vendors", label: "Vendors", icon: "car-outline", tint: "#64748b", roles: ["super_admin", "ops_manager"], target: { native: "/admin/suppliers" } },
-  { key: "reports", label: "Reports", icon: "bar-chart-outline", tint: "#0891b2", roles: ["super_admin", "ops_manager", "finance"], target: { web: "/reports", title: "Reports" } },
+  { key: "reports", label: "Reports", icon: "bar-chart-outline", tint: "#0891b2", roles: ["super_admin", "ops_manager", "finance"], target: { native: "/admin/reports" } },
   { key: "alerts", label: "Alerts", icon: "alert-circle-outline", tint: "#dc2626", roles: ["super_admin", "ops_manager"], target: { web: "/alerts", title: "Alerts" } },
   { key: "attendance", label: "Attendance", icon: "finger-print-outline", tint: "#059669", roles: ["super_admin", "ops_manager", "supervisor"], target: { native: "/attendance" } },
   { key: "documents", label: "Documents", icon: "folder-outline", tint: "#a855f7", roles: ["super_admin", "ops_manager"], target: { web: "/documents", title: "Documents" } },
-  { key: "teams", label: "Teams", icon: "people-outline", tint: "#3b82f6", roles: ["super_admin"], target: { web: "/teams", title: "Teams" } },
+  { key: "teams", label: "Teams", icon: "people-outline", tint: "#3b82f6", roles: ["super_admin"], target: { native: "/admin/teams" } },
   { key: "setup", label: "Setup", icon: "options-outline", tint: "#64748b", roles: ["super_admin", "ops_manager"], target: { web: "/setup", title: "Setup" } },
   { key: "settings", label: "Settings", icon: "settings-outline", tint: "#64748b", target: { web: "/settings", title: "Settings" } },
 ];
@@ -79,6 +79,8 @@ export default function DashboardHub() {
 
   const role = user?.role ?? "";
   const modules = MODULES.filter((m) => !m.roles || m.roles.includes(role));
+  // Company-wide asset KPIs are for oversight roles only; field/limited roles just get their modules.
+  const isManager = ["super_admin", "ops_manager", "supervisor", "finance"].includes(role);
 
   const kpis = [
     { label: "Total Screens", value: stats?.total ?? 0, icon: "tv-outline" as IconName, tint: colors.primary },
@@ -96,7 +98,7 @@ export default function DashboardHub() {
       >
         <View style={styles.header}>
           <View>
-            <Text style={styles.title}>Dashboard</Text>
+            <Text style={styles.title}>Workspace</Text>
             <Text style={styles.subtitle}>{user?.full_name || user?.username}{role ? ` · ${ROLE_LABELS[role] || role}` : ""}</Text>
           </View>
           <Pressable style={styles.bell} onPress={() => router.push("/notifications")}>
@@ -104,21 +106,23 @@ export default function DashboardHub() {
           </Pressable>
         </View>
 
-        {/* KPIs */}
-        <View style={styles.kpiGrid}>
-          {kpis.map((k) => (
-            <View key={k.label} style={styles.kpiCard}>
-              <View style={[styles.kpiIcon, { backgroundColor: k.tint + "1a" }]}>
-                <Ionicons name={k.icon} size={18} color={k.tint} />
+        {/* Company KPIs — oversight roles only */}
+        {isManager && (
+          <View style={styles.kpiGrid}>
+            {kpis.map((k) => (
+              <View key={k.label} style={styles.kpiCard}>
+                <View style={[styles.kpiIcon, { backgroundColor: k.tint + "1a" }]}>
+                  <Ionicons name={k.icon} size={18} color={k.tint} />
+                </View>
+                <Text style={styles.kpiValue}>{k.value}</Text>
+                <Text style={styles.kpiLabel}>{k.label}</Text>
               </View>
-              <Text style={styles.kpiValue}>{k.value}</Text>
-              <Text style={styles.kpiLabel}>{k.label}</Text>
-            </View>
-          ))}
-        </View>
+            ))}
+          </View>
+        )}
 
         {/* Modules */}
-        <Text style={styles.section}>Modules</Text>
+        <Text style={[styles.section, !isManager && { marginTop: 0 }]}>Modules</Text>
         <View style={styles.modGrid}>
           {modules.map((m) => (
             <Pressable key={m.key} style={styles.modCard} onPress={() => open(m)}>

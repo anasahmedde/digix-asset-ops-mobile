@@ -69,8 +69,16 @@ verify manager/admin screens end-to-end we need an **admin/ops_manager test logi
   ("Field Staff", empty data) instead of redirecting to login. Pre-existing; worth a small fix
   (redirect to /login on refresh failure in `lib/api.ts`).
 
-### Wave 3 — Management & oversight
-- [ ] Teams (users/roles) · Projects · Warranties · Reports/Analytics/Finance (charts)
+### Wave 3 — Management & oversight  ✅ DONE (2026-07-09, tested w/ real data)
+- [x] Teams (`app/admin/teams.tsx`) — user list + search + role-colored badges + detail sheet [11 users]
+- [x] Projects (`app/admin/projects.tsx` + `project/[id].tsx`) — list w/ progress + detail (bottlenecks/team)
+- [x] Warranties (`app/admin/warranties.tsx`) — list + All/Active/Expired filter + detail sheet [15]
+- [x] Reports (`app/admin/reports.tsx`) — native summary: KPI grid + Assets-by-status + Assets-by-city bars
+- [x] **Renamed the "Dashboard" tab → "Workspace"** (best practice; avoids clashing with web Dashboard)
+- [x] **Role-gated KPIs**: company asset KPIs now shown to oversight roles only (super_admin/ops_manager/supervisor/finance); technicians/limited roles see just their modules
+- [x] **FIXED critical auth bug** (`lib/api.ts`): single-flight token refresh — the backend rotates+blacklists
+      refresh tokens, so parallel 401s were racing and wiping the session every ~30 min. Now one refresh is
+      shared across concurrent requests, and a genuine failure redirects to /login (no more broken half-state).
 
 ### Wave 4 — Remaining
 - [ ] Alerts · Documents · Setup · Settings (native)
