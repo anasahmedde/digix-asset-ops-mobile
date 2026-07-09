@@ -2,7 +2,6 @@ import { Ionicons } from "@expo/vector-icons";
 import { useFonts } from "expo-font";
 import { Stack } from "expo-router";
 import { StatusBar } from "expo-status-bar";
-import { View } from "react-native";
 
 import { colors } from "@/constants/theme";
 
@@ -16,10 +15,11 @@ const headerStyle = {
 };
 
 export default function RootLayout() {
-  // Preload the icon font so Ionicons glyphs render in the release APK
-  // (otherwise icons show blank until the font lazy-loads).
-  const [fontsLoaded] = useFonts({ ...Ionicons.font });
-  if (!fontsLoaded) return <View style={{ flex: 1, backgroundColor: colors.bg }} />;
+  // Preload the icon font so Ionicons glyphs render in the release APK.
+  // IMPORTANT: proceed even if the font errors — otherwise the whole app
+  // would hang on a blank screen. Icons still lazy-load via the library.
+  const [fontsLoaded, fontError] = useFonts({ ...Ionicons.font });
+  if (!fontsLoaded && !fontError) return null;
 
   return (
     <>
