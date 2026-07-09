@@ -59,8 +59,15 @@ verify manager/admin screens end-to-end we need an **admin/ops_manager test logi
 - [x] Build APK + tested on emulator + merged
 - NOTE: create/edit (clients) + work-order data need an **admin/ops_manager login** to fully verify (anas=technician: reads OK, writes 403).
 
-### Wave 2 — Supply chain
-- [ ] Inventory (stock/items) · Procurement (POs) · Suppliers/Vendors · Maintenance schedules
+### Wave 2 — Supply chain  ✅ DONE (2026-07-09, tested w/ real data)
+- [x] Inventory (`app/admin/inventory.tsx`) — list + search + All/Low-stock chips
+- [x] Procurement (`app/admin/procurement.tsx` + `purchase-order/[id].tsx`) — list + status filter + PO detail (items/amounts) — verified 7 POs
+- [x] Suppliers/Vendors (`app/admin/suppliers.tsx`) — list + search + create/edit sheet + FAB
+- [x] Maintenance (`app/admin/maintenance.tsx`) — list + search + detail sheet (instructions) — verified 8 schedules
+- [x] Wired native in the hub (maintenance/inventory/procurement/vendors no longer web)
+- NOTE: expired-session UX — when tokens fully expire the app shows a fallback half-state
+  ("Field Staff", empty data) instead of redirecting to login. Pre-existing; worth a small fix
+  (redirect to /login on refresh failure in `lib/api.ts`).
 
 ### Wave 3 — Management & oversight
 - [ ] Teams (users/roles) · Projects · Warranties · Reports/Analytics/Finance (charts)
