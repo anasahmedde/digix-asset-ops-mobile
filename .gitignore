@@ -3,3 +3,8 @@ node_modules/
 dist/
 *.tsbuildinfo
 .DS_Store
+
+# native prebuild output (managed workflow) + build artifacts
+/android
+/ios
+*.apk
