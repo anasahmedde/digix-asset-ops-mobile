@@ -35,6 +35,8 @@ export default function RootLayout() {
         <Stack.Screen name="new-chat" options={{ ...headerStyle, title: "New Message", presentation: "modal" }} />
         <Stack.Screen name="attendance" options={{ ...headerStyle, title: "Attendance" }} />
         <Stack.Screen name="visits" options={{ ...headerStyle, title: "Site Visits" }} />
+        <Stack.Screen name="site/[id]" options={{ ...headerStyle, title: "Site" }} />
+        <Stack.Screen name="installation/[id]" options={{ ...headerStyle, title: "Installation" }} />
       </Stack>
     </>
   );

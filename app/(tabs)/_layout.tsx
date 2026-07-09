@@ -4,6 +4,7 @@ import { useCallback, useEffect, useState } from "react";
 
 import { colors } from "@/constants/theme";
 import api from "@/lib/api";
+import { registerForPush, setupNotificationTapHandler } from "@/lib/push";
 
 export default function TabLayout() {
   const [unread, setUnread] = useState(0);
@@ -22,6 +23,13 @@ export default function TabLayout() {
     const t = setInterval(loadUnread, 15000);
     return () => clearInterval(t);
   }, [loadUnread]);
+
+  // Register this device for push + route notification taps (once, when signed in).
+  useEffect(() => {
+    registerForPush();
+    const unsubscribe = setupNotificationTapHandler();
+    return unsubscribe;
+  }, []);
 
   return (
     <Tabs

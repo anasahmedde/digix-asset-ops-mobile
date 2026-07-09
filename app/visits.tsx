@@ -1,4 +1,5 @@
 import { Ionicons } from "@expo/vector-icons";
+import { router } from "expo-router";
 import { useCallback, useEffect, useState } from "react";
 import { FlatList, RefreshControl, StyleSheet, Text, View } from "react-native";
 
@@ -32,8 +33,11 @@ export default function VisitsScreen() {
       refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => { setRefreshing(true); load(); }} />}
       ListEmptyComponent={<EmptyState icon="map-outline" title="No sites" subtitle="Active sites will appear here." />}
       renderItem={({ item }) => (
-        <Card style={{ marginBottom: spacing.md, gap: 4 }}>
-          <Text style={styles.name}>{item.name}</Text>
+        <Card style={{ marginBottom: spacing.md, gap: 4 }} onPress={() => router.push(`/site/${item.id}`)}>
+          <View style={styles.head}>
+            <Text style={styles.name}>{item.name}</Text>
+            <Ionicons name="chevron-forward" size={18} color={colors.textLight} />
+          </View>
           {item.client_name ? <Text style={styles.client}>{item.client_name}</Text> : null}
           <View style={styles.line}>
             <Ionicons name="location-outline" size={14} color={colors.textLight} />
@@ -52,7 +56,8 @@ export default function VisitsScreen() {
 }
 
 const styles = StyleSheet.create({
-  name: { fontSize: font.body, fontWeight: "700", color: colors.text },
+  head: { flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
+  name: { fontSize: font.body, fontWeight: "700", color: colors.text, flex: 1 },
   client: { fontSize: font.sm, color: colors.primary, fontWeight: "600" },
   line: { flexDirection: "row", alignItems: "center", gap: 5, marginTop: 2 },
   addr: { flex: 1, fontSize: font.sm, color: colors.textMuted },

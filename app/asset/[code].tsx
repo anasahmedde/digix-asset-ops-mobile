@@ -27,13 +27,21 @@ export default function AssetDetailScreen() {
   const [notFound, setNotFound] = useState(false);
   const [form, setForm] = useState<{ title: string; category: string; priority: string; description: string } | null>(null);
   const [saving, setSaving] = useState(false);
+  const [install, setInstall] = useState<{ id: string; progress: number } | null>(null);
 
   useEffect(() => {
     (async () => {
       try {
         const { data } = await api.get("/assets/devices/", { params: { search: code, page_size: 1 } });
         const results = data.results ?? data;
-        if (results.length) setDevice(results[0]); else setNotFound(true);
+        if (results.length) {
+          setDevice(results[0]);
+          try {
+            const inst = await api.get("/sites/installations/", { params: { device: results[0].id, ordering: "-installed_at", page_size: 1 } });
+            const list = inst.data.results ?? inst.data;
+            if (list.length) setInstall({ id: list[0].id, progress: list[0].progress ?? 0 });
+          } catch { /* no installation */ }
+        } else setNotFound(true);
       } catch { setNotFound(true); }
       finally { setLoading(false); }
     })();
@@ -89,6 +97,20 @@ export default function AssetDetailScreen() {
             <Row label="Site" value={device.site_name || "—"} />
             <Row label="Client" value={device.client_name || "—"} />
           </Card>
+
+          {install ? (
+            <Card style={{ marginTop: spacing.lg }} onPress={() => router.push(`/installation/${install.id}`)}>
+              <View style={styles.instRow}>
+                <View style={styles.instIcon}><Ionicons name="construct-outline" size={18} color={colors.primary} /></View>
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.instTitle}>Installation progress</Text>
+                  <View style={styles.instTrack}><View style={[styles.instFill, { width: `${install.progress}%` }]} /></View>
+                </View>
+                <Text style={styles.instPct}>{install.progress}%</Text>
+                <Ionicons name="chevron-forward" size={18} color={colors.textLight} />
+              </View>
+            </Card>
+          ) : null}
 
           <Button
             title="Raise a Ticket for this Asset"
@@ -149,6 +171,12 @@ const styles = StyleSheet.create({
   assetName: { fontSize: font.body, color: colors.textMuted, marginTop: 2 },
   badges: { flexDirection: "row", gap: spacing.sm, marginTop: spacing.md },
   wPill: { borderRadius: radius.pill, paddingHorizontal: 10, paddingVertical: 4 },
+  instRow: { flexDirection: "row", alignItems: "center", gap: spacing.sm },
+  instIcon: { width: 36, height: 36, borderRadius: radius.md, backgroundColor: colors.primarySoft, alignItems: "center", justifyContent: "center" },
+  instTitle: { fontSize: font.sm, fontWeight: "700", color: colors.text, marginBottom: 5 },
+  instTrack: { height: 6, borderRadius: 999, backgroundColor: colors.border, overflow: "hidden" },
+  instFill: { height: 6, borderRadius: 999, backgroundColor: colors.primary },
+  instPct: { fontSize: font.sm, fontWeight: "800", color: colors.primary },
   wText: { fontSize: font.xs, fontWeight: "700" },
   modalWrap: { flex: 1, justifyContent: "flex-end", backgroundColor: "rgba(15,23,42,0.4)" },
   sheet: { backgroundColor: colors.bg, borderTopLeftRadius: radius.xl, borderTopRightRadius: radius.xl, padding: spacing.lg, paddingBottom: spacing.xxl, maxHeight: "88%" },

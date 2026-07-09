@@ -1,9 +1,10 @@
 import { Platform } from "react-native";
 
 export const colors = {
-  primary: "#2563eb",
-  primaryDark: "#1d4ed8",
-  primarySoft: "#eff4ff",
+  // Teal/emerald to match the web dashboard theme (hsl(168 76% 42%)).
+  primary: "#12b48f",
+  primaryDark: "#0e9e7d",
+  primarySoft: "#e7f7f2",
   bg: "#f4f6fa",
   card: "#ffffff",
   border: "#e6e9ef",
