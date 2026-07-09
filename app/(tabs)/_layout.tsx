@@ -53,7 +53,7 @@ export default function TabLayout() {
       />
       <Tabs.Screen
         name="dashboard"
-        options={{ title: "Dashboard", tabBarIcon: ({ color, size, focused }) => <Ionicons name={focused ? "grid" : "grid-outline"} size={size} color={color} /> }}
+        options={{ title: "Workspace", tabBarIcon: ({ color, size, focused }) => <Ionicons name={focused ? "grid" : "grid-outline"} size={size} color={color} /> }}
       />
       <Tabs.Screen
         name="tickets/index"
