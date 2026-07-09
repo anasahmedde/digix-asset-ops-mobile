@@ -27,6 +27,7 @@ export default function TicketDetailScreen() {
   const [busy, setBusy] = useState(false);
   const [comment, setComment] = useState("");
   const [commentPhoto, setCommentPhoto] = useState<string | null>(null);
+  const [assign, setAssign] = useState<{ users: { id: string; name: string }[]; vendors: { id: string; name: string }[]; userId: string; vendorId: string } | null>(null);
 
   // modals
   const [completion, setCompletion] = useState<{ notes: string; parts: string; photos: string[] } | null>(null);
@@ -46,11 +47,12 @@ export default function TicketDetailScreen() {
   useEffect(() => { load(); }, [load]);
 
   const perms = useMemo(() => {
-    if (!ticket || !me) return { isAssignee: false, isReviewer: false, isMarketing: false };
+    if (!ticket || !me) return { isAssignee: false, isReviewer: false, isMarketing: false, isManager: false };
     return {
       isAssignee: ticket.assigned_to === me.id,
       isReviewer: ticket.reported_by === me.id || MANAGER_ROLES.includes(me.role),
       isMarketing: me.role === "marketing" || MANAGER_ROLES.includes(me.role),
+      isManager: MANAGER_ROLES.includes(me.role),
     };
   }, [ticket, me]);
 
@@ -115,6 +117,34 @@ export default function TicketDetailScreen() {
       await load();
     } catch { toast.error("Could not post comment"); }
     finally { setBusy(false); }
+  }
+
+  async function openAssign() {
+    try {
+      const [u, v] = await Promise.all([
+        api.get("/accounts/users/", { params: { is_active: true, page_size: 200 } }),
+        api.get("/suppliers/", { params: { page_size: 200 } }),
+      ]);
+      setAssign({
+        users: (u.data.results ?? u.data).map((x: any) => ({ id: x.id, name: `${x.first_name ?? ""} ${x.last_name ?? ""}`.trim() || x.username })),
+        vendors: (v.data.results ?? v.data).map((x: any) => ({ id: x.id, name: x.name })),
+        userId: ticket?.assigned_to ?? "",
+        vendorId: (ticket as any)?.assigned_vendor ?? "",
+      });
+    } catch { toast.error("Could not load assignees"); }
+  }
+
+  async function submitAssign() {
+    if (!assign) return;
+    setBusy(true);
+    try {
+      await api.post(`/tickets/${id}/assign/`, { assigned_to: assign.userId || null, assigned_vendor: assign.vendorId || null });
+      toast.success("Ticket assigned");
+      setAssign(null);
+      await load();
+    } catch (e: any) {
+      toast.error(e?.response?.data?.detail || "Assignment failed");
+    } finally { setBusy(false); }
   }
 
   async function pickCommentPhoto() {
@@ -243,6 +273,16 @@ export default function TicketDetailScreen() {
           </View>
         </ScrollView>
 
+        {/* Assign (Operations) */}
+        {perms.isManager && ticket.status !== "closed" && (
+          <Pressable onPress={openAssign} style={styles.assignBar}>
+            <Ionicons name="person-add-outline" size={18} color={colors.primary} />
+            <Text style={styles.assignBarText}>
+              {ticket.assigned_to_name || ticket.assigned_vendor_name ? `Reassign (${[ticket.assigned_to_name, ticket.assigned_vendor_name].filter(Boolean).join(" / ")})` : "Assign Ticket"}
+            </Text>
+          </Pressable>
+        )}
+
         {/* Action bar */}
         {actions.length > 0 && (
           <View style={styles.actionBar}>
@@ -309,6 +349,43 @@ export default function TicketDetailScreen() {
       </Modal>
 
       {/* Reason modal */}
+      {/* Assign sheet */}
+      <Modal visible={!!assign} animationType="slide" transparent onRequestClose={() => setAssign(null)}>
+        <View style={styles.modalWrap}>
+          <View style={[styles.sheet, { maxHeight: "80%" }]}>
+            <View style={styles.sheetHead}>
+              <Text style={styles.sheetTitle}>Assign Ticket</Text>
+              <Pressable onPress={() => setAssign(null)}><Ionicons name="close" size={24} color={colors.textMuted} /></Pressable>
+            </View>
+            <ScrollView showsVerticalScrollIndicator={false}>
+              <Text style={styles.label}>Employee</Text>
+              <Pressable onPress={() => setAssign((a) => a ? { ...a, userId: "" } : a)} style={[styles.optRow, !assign?.userId && styles.optRowActive]}>
+                <Text style={[styles.optText, !assign?.userId && styles.optTextActive]}>Unassigned</Text>
+              </Pressable>
+              {(assign?.users ?? []).map((u) => (
+                <Pressable key={u.id} onPress={() => setAssign((a) => a ? { ...a, userId: u.id } : a)} style={[styles.optRow, assign?.userId === u.id && styles.optRowActive]}>
+                  <Text style={[styles.optText, assign?.userId === u.id && styles.optTextActive]}>{u.name}</Text>
+                  {assign?.userId === u.id ? <Ionicons name="checkmark" size={18} color={colors.primary} /> : null}
+                </Pressable>
+              ))}
+              <Text style={[styles.label, { marginTop: spacing.md }]}>Vendor (for in-warranty assets)</Text>
+              <Pressable onPress={() => setAssign((a) => a ? { ...a, vendorId: "" } : a)} style={[styles.optRow, !assign?.vendorId && styles.optRowActive]}>
+                <Text style={[styles.optText, !assign?.vendorId && styles.optTextActive]}>No vendor</Text>
+              </Pressable>
+              {(assign?.vendors ?? []).map((v) => (
+                <Pressable key={v.id} onPress={() => setAssign((a) => a ? { ...a, vendorId: v.id } : a)} style={[styles.optRow, assign?.vendorId === v.id && styles.optRowActive]}>
+                  <Text style={[styles.optText, assign?.vendorId === v.id && styles.optTextActive]}>{v.name}</Text>
+                  {assign?.vendorId === v.id ? <Ionicons name="checkmark" size={18} color={colors.primary} /> : null}
+                </Pressable>
+              ))}
+            </ScrollView>
+            <Pressable onPress={submitAssign} disabled={busy} style={[styles.assignSubmit, busy && { opacity: 0.5 }]}>
+              <Text style={styles.assignSubmitText}>{busy ? "Assigning…" : "Assign"}</Text>
+            </Pressable>
+          </View>
+        </View>
+      </Modal>
+
       {/* Fullscreen photo viewer */}
       <Modal visible={!!viewer} animationType="fade" transparent onRequestClose={() => setViewer(null)}>
         <View style={styles.viewerWrap}>
@@ -399,6 +476,14 @@ function Note({ tone, icon, title, text }: { tone: "hold" | "block"; icon: keyof
 }
 
 const styles = StyleSheet.create({
+  assignBar: { flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8, marginHorizontal: spacing.lg, marginBottom: spacing.sm, height: 44, borderRadius: radius.md, borderWidth: 1.5, borderColor: colors.primarySoft, backgroundColor: colors.primarySoft },
+  assignBarText: { color: colors.primary, fontWeight: "700", fontSize: font.sm },
+  optRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", paddingVertical: 10, paddingHorizontal: 12, borderRadius: radius.sm, marginBottom: 2 },
+  optRowActive: { backgroundColor: colors.primarySoft },
+  optText: { fontSize: font.body, color: colors.text },
+  optTextActive: { color: colors.primary, fontWeight: "700" },
+  assignSubmit: { marginTop: spacing.md, height: 48, borderRadius: radius.md, backgroundColor: colors.primary, alignItems: "center", justifyContent: "center" },
+  assignSubmitText: { color: "#fff", fontSize: font.body, fontWeight: "700" },
   commentImg: { width: 180, height: 130, borderRadius: 10, marginTop: 6, backgroundColor: "#eef1f5" },
   attachBtn: { width: 40, height: 40, borderRadius: 20, borderWidth: 1.5, borderColor: colors.primarySoft, backgroundColor: colors.primarySoft, alignItems: "center", justifyContent: "center", marginRight: 6 },
   photoChip: { flexDirection: "row", alignItems: "center", gap: 8, backgroundColor: colors.card, borderRadius: 10, borderWidth: 1, borderColor: colors.border, padding: 6, marginBottom: 6 },
