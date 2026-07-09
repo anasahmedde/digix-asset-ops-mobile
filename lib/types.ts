@@ -123,6 +123,21 @@ export interface AppNotification {
   created_at: string;
 }
 
+export interface AttendanceRecord {
+  id: string;
+  user: string;
+  user_name: string;
+  check_type: "check_in" | "check_out";
+  check_type_display: string;
+  latitude: string | null;
+  longitude: string | null;
+  accuracy: number | null;
+  site: string | null;
+  site_name: string | null;
+  note: string;
+  created_at: string;
+}
+
 export const ROLE_LABELS: Record<string, string> = {
   super_admin: "Super Admin",
   ops_manager: "Operations Manager",
