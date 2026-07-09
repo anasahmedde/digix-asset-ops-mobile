@@ -2,8 +2,10 @@ import { API_ORIGIN } from "./api";
 
 export function mediaUrl(path?: string | null): string | undefined {
   if (!path) return undefined;
-  if (path.startsWith("http")) return path;
-  return `${API_ORIGIN}${path.startsWith("/") ? "" : "/"}${path}`;
+  let url = path.startsWith("http") ? path : `${API_ORIGIN}${path.startsWith("/") ? "" : "/"}${path}`;
+  // Android blocks cleartext; upgrade any http:// URL when we talk to an https API.
+  if (API_ORIGIN.startsWith("https") && url.startsWith("http://")) url = url.replace("http://", "https://");
+  return url;
 }
 
 export function timeAgo(iso?: string): string {
