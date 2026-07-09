@@ -49,14 +49,15 @@ verify manager/admin screens end-to-end we need an **admin/ops_manager test logi
 - [x] Login (redesigned), Home, Tickets (list/detail/actions), Assets scan+detail, Sites list+detail,
       Installations (steps/photos), Attendance, Chat, Notifications, Profile
 
-### Wave 1 — Admin core  ← CURRENT
-- [ ] **Native Dashboard hub** — KPI cards (from `dashboard_stats`) + role-gated module grid;
-      becomes the Dashboard tab (WebView demoted to fallback for un-built modules)
-- [ ] **Assets registry** — native list (search + status filter, paginated) → asset detail (exists)
-- [ ] **Clients** — list + detail + create/edit
-- [ ] **Work Orders** — list + detail (+ status transition)
-- [ ] Keep WebView fallback for everything else
-- [ ] Build APK + test on emulator + merge
+### Wave 1 — Admin core  ✅ DONE (2026-07-09, tested on emulator)
+- [x] **Native Dashboard hub** (`app/(tabs)/dashboard.tsx`) — KPI cards + role-gated module grid;
+      web-only modules show a dot and open the WebView fallback
+- [x] **Assets registry** (`app/admin/assets.tsx`) — search + status chips + list → asset detail
+- [x] **Clients** (`app/admin/clients.tsx`) — list + search + create/edit sheet + FAB
+- [x] **Work Orders** (`app/admin/work-orders.tsx` + `work-order/[id].tsx`) — list + filter + detail + status transitions
+- [x] WebView fallback kept (`app/web-view.tsx`, param `path`/`title`)
+- [x] Build APK + tested on emulator + merged
+- NOTE: create/edit (clients) + work-order data need an **admin/ops_manager login** to fully verify (anas=technician: reads OK, writes 403).
 
 ### Wave 2 — Supply chain
 - [ ] Inventory (stock/items) · Procurement (POs) · Suppliers/Vendors · Maintenance schedules
