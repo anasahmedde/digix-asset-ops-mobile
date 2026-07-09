@@ -34,6 +34,11 @@ export function dayLabel(iso: string): string {
   return d.toLocaleDateString(undefined, { weekday: "long", month: "short", day: "numeric" });
 }
 
+export function formatDate(iso?: string | null): string {
+  if (!iso) return "—";
+  return new Date(iso).toLocaleDateString(undefined, { year: "numeric", month: "short", day: "numeric" });
+}
+
 export function greeting(): string {
   const h = new Date().getHours();
   if (h < 12) return "Good morning";
