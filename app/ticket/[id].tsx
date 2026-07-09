@@ -26,6 +26,7 @@ export default function TicketDetailScreen() {
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
   const [comment, setComment] = useState("");
+  const [commentPhoto, setCommentPhoto] = useState<string | null>(null);
 
   // modals
   const [completion, setCompletion] = useState<{ notes: string; parts: string; photos: string[] } | null>(null);
@@ -98,14 +99,30 @@ export default function TicketDetailScreen() {
   }
 
   async function addComment() {
-    if (!comment.trim()) return;
+    if (!comment.trim() && !commentPhoto) return;
     setBusy(true);
     try {
-      await api.post(`/tickets/${id}/comments/`, { content: comment });
+      if (commentPhoto) {
+        const fd = new FormData();
+        fd.append("content", comment);
+        fd.append("image", { uri: commentPhoto, name: "comment.jpg", type: "image/jpeg" } as any);
+        await api.post(`/tickets/${id}/comments/`, fd, { headers: { "Content-Type": "multipart/form-data" } });
+      } else {
+        await api.post(`/tickets/${id}/comments/`, { content: comment });
+      }
       setComment("");
+      setCommentPhoto(null);
       await load();
     } catch { toast.error("Could not post comment"); }
     finally { setBusy(false); }
+  }
+
+  async function pickCommentPhoto() {
+    const perm = await ImagePicker.requestCameraPermissionsAsync();
+    const res = perm.granted
+      ? await ImagePicker.launchCameraAsync({ quality: 0.6 })
+      : await ImagePicker.launchImageLibraryAsync({ quality: 0.6 });
+    if (!res.canceled && res.assets?.[0]) setCommentPhoto(res.assets[0].uri);
   }
 
   async function pickPhoto() {
@@ -188,12 +205,26 @@ export default function TicketDetailScreen() {
                     <Text style={styles.systemText}>changed status to <Text style={{ fontWeight: "700" }}>{labelize(c.new_status)}</Text></Text>
                   ) : null}
                   {c.content ? <Text style={styles.commentText}>{c.content}</Text> : null}
+                  {c.image ? (
+                    <Pressable onPress={() => setViewer({ uri: mediaUrl(c.image)! })}>
+                      <Image source={{ uri: mediaUrl(c.image) }} style={styles.commentImg} />
+                    </Pressable>
+                  ) : null}
                 </View>
               </View>
             ))
           )}
 
           {/* Add comment */}
+          {commentPhoto ? (
+            <View style={styles.photoChip}>
+              <Image source={{ uri: commentPhoto }} style={styles.photoChipImg} />
+              <Text style={styles.photoChipText} numberOfLines={1}>Photo attached</Text>
+              <Pressable onPress={() => setCommentPhoto(null)} hitSlop={8}>
+                <Ionicons name="close-circle" size={20} color={colors.textMuted} />
+              </Pressable>
+            </View>
+          ) : null}
           <View style={styles.commentInputRow}>
             <TextInput
               value={comment}
@@ -203,7 +234,10 @@ export default function TicketDetailScreen() {
               style={styles.commentInput}
               multiline
             />
-            <Pressable onPress={addComment} disabled={busy || !comment.trim()} style={[styles.sendBtn, (!comment.trim() || busy) && { opacity: 0.4 }]}>
+            <Pressable onPress={pickCommentPhoto} disabled={busy} style={styles.attachBtn}>
+              <Ionicons name="add" size={22} color={colors.primary} />
+            </Pressable>
+            <Pressable onPress={addComment} disabled={busy || (!comment.trim() && !commentPhoto)} style={[styles.sendBtn, ((!comment.trim() && !commentPhoto) || busy) && { opacity: 0.4 }]}>
               <Ionicons name="send" size={18} color="#fff" />
             </Pressable>
           </View>
@@ -365,6 +399,11 @@ function Note({ tone, icon, title, text }: { tone: "hold" | "block"; icon: keyof
 }
 
 const styles = StyleSheet.create({
+  commentImg: { width: 180, height: 130, borderRadius: 10, marginTop: 6, backgroundColor: "#eef1f5" },
+  attachBtn: { width: 40, height: 40, borderRadius: 20, borderWidth: 1.5, borderColor: colors.primarySoft, backgroundColor: colors.primarySoft, alignItems: "center", justifyContent: "center", marginRight: 6 },
+  photoChip: { flexDirection: "row", alignItems: "center", gap: 8, backgroundColor: colors.card, borderRadius: 10, borderWidth: 1, borderColor: colors.border, padding: 6, marginBottom: 6 },
+  photoChipImg: { width: 34, height: 34, borderRadius: 6 },
+  photoChipText: { flex: 1, fontSize: font.sm, color: colors.textMuted },
   viewerWrap: { flex: 1, backgroundColor: "rgba(0,0,0,0.95)", justifyContent: "center" },
   viewerBody: { flex: 1, justifyContent: "center" },
   viewerImg: { width: "100%", height: "100%" },

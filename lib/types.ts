@@ -50,6 +50,7 @@ export interface Ticket {
 export interface TicketComment {
   id: string;
   ticket: string;
+  image?: string | null;
   author: string | null;
   author_name: string | null;
   content: string;
