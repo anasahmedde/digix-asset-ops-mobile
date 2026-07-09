@@ -38,12 +38,12 @@ const MODULES: Module[] = [
   { key: "projects", label: "Projects", icon: "clipboard-outline", tint: "#6366f1", roles: ["super_admin", "ops_manager"], target: { native: "/admin/projects" } },
   { key: "vendors", label: "Vendors", icon: "car-outline", tint: "#64748b", roles: ["super_admin", "ops_manager"], target: { native: "/admin/suppliers" } },
   { key: "reports", label: "Reports", icon: "bar-chart-outline", tint: "#0891b2", roles: ["super_admin", "ops_manager", "finance"], target: { native: "/admin/reports" } },
-  { key: "alerts", label: "Alerts", icon: "alert-circle-outline", tint: "#dc2626", roles: ["super_admin", "ops_manager"], target: { web: "/alerts", title: "Alerts" } },
+  { key: "alerts", label: "Alerts", icon: "alert-circle-outline", tint: "#dc2626", roles: ["super_admin", "ops_manager"], target: { native: "/admin/alerts" } },
   { key: "attendance", label: "Attendance", icon: "finger-print-outline", tint: "#059669", roles: ["super_admin", "ops_manager", "supervisor"], target: { native: "/attendance" } },
-  { key: "documents", label: "Documents", icon: "folder-outline", tint: "#a855f7", roles: ["super_admin", "ops_manager"], target: { web: "/documents", title: "Documents" } },
+  { key: "documents", label: "Documents", icon: "folder-outline", tint: "#a855f7", roles: ["super_admin", "ops_manager"], target: { native: "/admin/documents" } },
   { key: "teams", label: "Teams", icon: "people-outline", tint: "#3b82f6", roles: ["super_admin"], target: { native: "/admin/teams" } },
   { key: "setup", label: "Setup", icon: "options-outline", tint: "#64748b", roles: ["super_admin", "ops_manager"], target: { web: "/setup", title: "Setup" } },
-  { key: "settings", label: "Settings", icon: "settings-outline", tint: "#64748b", target: { web: "/settings", title: "Settings" } },
+  { key: "settings", label: "Settings", icon: "settings-outline", tint: "#64748b", target: { native: "/admin/settings" } },
 ];
 
 const ROLE_LABELS: Record<string, string> = {
