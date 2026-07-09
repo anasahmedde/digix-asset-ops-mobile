@@ -80,12 +80,19 @@ verify manager/admin screens end-to-end we need an **admin/ops_manager test logi
       refresh tokens, so parallel 401s were racing and wiping the session every ~30 min. Now one refresh is
       shared across concurrent requests, and a genuine failure redirects to /login (no more broken half-state).
 
-### Wave 4 — Remaining
-- [ ] Alerts · Documents · Setup · Settings (native)
+### Wave 4 — Remaining  ✅ DONE (2026-07-09, tested)
+- [x] Alerts (`app/admin/alerts.tsx`) — severity-colored list + dismiss [8 alerts]
+- [x] Documents (`app/admin/documents.tsx`) — list + open/download (empty state; 0 docs in DB) — `/infrastructure/documents/`
+- [x] Settings (`app/admin/settings.tsx`) — profile edit + change password (native)
+- [~] **Setup** — kept as WebView fallback ON PURPOSE: it's a large multi-entity config surface
+      (numbering schemes, categories, payment terms, service categories, material types, zones) with
+      low mobile value. Revisit if the client needs it on mobile.
 
 ### Wave 5 — Finish
-- [ ] Remove WebView fallback once 100% native · polish · role-based tab/nav restructure ·
-      (optional) offline caching for field data
+- [x] Auth refresh fix (done in Wave 3) — sessions survive properly now
+- Remaining WebView fallbacks (by choice / low value): **Setup**, Installation-tracker LIST
+  (per-asset installation is already native), and Finance sub-report. Everything else is native.
+- [ ] (optional) role-based tab restructure · offline caching for field data · native Setup if requested
 
 ---
 
