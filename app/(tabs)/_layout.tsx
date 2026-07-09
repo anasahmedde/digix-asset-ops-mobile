@@ -52,6 +52,10 @@ export default function TabLayout() {
         options={{ title: "Home", tabBarIcon: ({ color, size, focused }) => <Ionicons name={focused ? "home" : "home-outline"} size={size} color={color} /> }}
       />
       <Tabs.Screen
+        name="dashboard"
+        options={{ title: "Dashboard", tabBarIcon: ({ color, size, focused }) => <Ionicons name={focused ? "grid" : "grid-outline"} size={size} color={color} /> }}
+      />
+      <Tabs.Screen
         name="tickets/index"
         options={{ title: "Tickets", tabBarIcon: ({ color, size, focused }) => <Ionicons name={focused ? "reader" : "reader-outline"} size={size} color={color} /> }}
       />
