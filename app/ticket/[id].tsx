@@ -28,7 +28,7 @@ export default function TicketDetailScreen() {
   const [comment, setComment] = useState("");
 
   // modals
-  const [completion, setCompletion] = useState<{ notes: string; photos: string[] } | null>(null);
+  const [completion, setCompletion] = useState<{ notes: string; parts: string; photos: string[] } | null>(null);
   const [reason, setReason] = useState<{ status?: string; review?: "reject"; title: string; text: string } | null>(null);
 
   const load = useCallback(async () => {
@@ -44,10 +44,11 @@ export default function TicketDetailScreen() {
   useEffect(() => { load(); }, [load]);
 
   const perms = useMemo(() => {
-    if (!ticket || !me) return { isAssignee: false, isReviewer: false };
+    if (!ticket || !me) return { isAssignee: false, isReviewer: false, isMarketing: false };
     return {
       isAssignee: ticket.assigned_to === me.id,
       isReviewer: ticket.reported_by === me.id || MANAGER_ROLES.includes(me.role),
+      isMarketing: me.role === "marketing" || MANAGER_ROLES.includes(me.role),
     };
   }, [ticket, me]);
 
@@ -68,6 +69,7 @@ export default function TicketDetailScreen() {
     setBusy(true);
     const fd = new FormData();
     fd.append("completion_notes", completion.notes);
+    fd.append("parts_used", completion.parts);
     completion.photos.forEach((uri, i) => {
       fd.append("images", { uri, name: `evidence_${i}.jpg`, type: "image/jpeg" } as any);
       fd.append("captions", "");
@@ -216,9 +218,11 @@ export default function TicketDetailScreen() {
                 small={actions.length > 1}
                 style={{ flexGrow: 1, minWidth: actions.length > 2 ? "46%" : undefined }}
                 onPress={() => {
-                  if (a.key === "submit") setCompletion({ notes: "", photos: [] });
+                  if (a.key === "submit") setCompletion({ notes: "", parts: "", photos: [] });
                   else if (a.key === "hold") setReason({ status: "on_hold", title: "Reason for hold", text: "" });
                   else if (a.key === "block") setReason({ status: "blocked", title: "Reason for blocker", text: "" });
+                  else if (a.key === "ops_approval") setReason({ status: "pending_ops_approval", title: "What needs approval?", text: "" });
+                  else if (a.key === "decline" || a.key === "client_no") setReason({ status: "on_hold", title: "Reason for decline", text: "" });
                   else if (a.key === "reject") setReason({ review: "reject", title: "Rejection feedback", text: "" });
                   else if (a.key === "approve") review("approve");
                   else transition(a.status!);
@@ -245,6 +249,14 @@ export default function TicketDetailScreen() {
               placeholderTextColor={colors.textLight}
               multiline
               style={[styles.input, { height: 90 }]}
+            />
+            <Text style={styles.label}>Parts used</Text>
+            <TextInput
+              value={completion?.parts}
+              onChangeText={(t) => setCompletion((c) => c ? { ...c, parts: t } : c)}
+              placeholder="e.g. 1x P6 module, 2x ribbon cables"
+              placeholderTextColor={colors.textLight}
+              style={styles.input}
             />
             <Text style={styles.label}>Photo evidence</Text>
             <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: spacing.sm, marginBottom: spacing.md }}>
@@ -293,16 +305,27 @@ export default function TicketDetailScreen() {
 }
 
 type Act = { key: string; label: string; icon: keyof typeof Ionicons.glyphMap; variant: any; status?: string };
-function buildActions(s: string, p: { isAssignee: boolean; isReviewer: boolean }): Act[] {
+function buildActions(s: string, p: { isAssignee: boolean; isReviewer: boolean; isMarketing: boolean }): Act[] {
   const a: Act[] = [];
   if (s === "open" && (p.isAssignee || p.isReviewer)) a.push({ key: "start", label: "Start Work", icon: "play", variant: "primary", status: "in_progress" });
   if ((s === "in_progress" || s === "alignment_pending") && p.isAssignee) {
     a.push({ key: "submit", label: "Submit for Review", icon: "checkmark-done", variant: "success" });
     if (s === "in_progress") a.push({ key: "align", label: "Alignment", icon: "git-compare", variant: "secondary", status: "alignment_pending" });
+    if (s === "in_progress") a.push({ key: "ops_approval", label: "Request Approval", icon: "shield-checkmark", variant: "secondary" });
     a.push({ key: "hold", label: "On Hold", icon: "pause", variant: "secondary" });
     a.push({ key: "block", label: "Blocked", icon: "alert", variant: "danger" });
   }
   if ((s === "on_hold" || s === "blocked" || s === "rejected") && p.isAssignee) a.push({ key: "resume", label: "Resume Work", icon: "play", variant: "primary", status: "in_progress" });
+  if (s === "pending_ops_approval" && p.isReviewer) {
+    a.push({ key: "approve_rect", label: "Approve Rectification", icon: "checkmark-circle", variant: "success", status: "in_progress" });
+    a.push({ key: "client_approval", label: "Needs Client Approval", icon: "people", variant: "secondary", status: "pending_client_approval" });
+    a.push({ key: "decline", label: "Decline", icon: "pause", variant: "danger" });
+  }
+  if (s === "pending_client_approval" && p.isMarketing) {
+    a.push({ key: "client_ok", label: "Client Approved", icon: "checkmark-circle", variant: "success", status: "in_progress" });
+    a.push({ key: "client_no", label: "Client Declined", icon: "close-circle", variant: "danger" });
+  }
+  if (s === "on_hold" && p.isMarketing) a.push({ key: "close_hold", label: "Close Ticket", icon: "lock-closed", variant: "secondary", status: "closed" });
   if (s === "pending_review" && p.isReviewer) {
     a.push({ key: "approve", label: "Approve", icon: "checkmark-circle", variant: "success" });
     a.push({ key: "reject", label: "Reject", icon: "close-circle", variant: "danger" });
