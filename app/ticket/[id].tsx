@@ -29,6 +29,7 @@ export default function TicketDetailScreen() {
 
   // modals
   const [completion, setCompletion] = useState<{ notes: string; parts: string; photos: string[] } | null>(null);
+  const [viewer, setViewer] = useState<{ uri: string; caption?: string } | null>(null);
   const [reason, setReason] = useState<{ status?: string; review?: "reject"; title: string; text: string } | null>(null);
 
   const load = useCallback(async () => {
@@ -162,7 +163,9 @@ export default function TicketDetailScreen() {
               <Text style={styles.blockTitle}>Photos ({ticket.attachments.length})</Text>
               <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: spacing.sm }}>
                 {ticket.attachments.map((a) => (
-                  <Image key={a.id} source={{ uri: mediaUrl(a.file) }} style={styles.thumb} />
+                  <Pressable key={a.id} onPress={() => setViewer({ uri: mediaUrl(a.file)!, caption: a.caption })}>
+                    <Image source={{ uri: mediaUrl(a.file) }} style={styles.thumb} />
+                  </Pressable>
                 ))}
               </ScrollView>
             </View>
@@ -272,6 +275,19 @@ export default function TicketDetailScreen() {
       </Modal>
 
       {/* Reason modal */}
+      {/* Fullscreen photo viewer */}
+      <Modal visible={!!viewer} animationType="fade" transparent onRequestClose={() => setViewer(null)}>
+        <View style={styles.viewerWrap}>
+          <Pressable style={styles.viewerClose} onPress={() => setViewer(null)}>
+            <Ionicons name="close" size={26} color="#fff" />
+          </Pressable>
+          <Pressable style={styles.viewerBody} onPress={() => setViewer(null)}>
+            {viewer ? <Image source={{ uri: viewer.uri }} style={styles.viewerImg} resizeMode="contain" /> : null}
+          </Pressable>
+          {viewer?.caption ? <Text style={styles.viewerCaption}>{viewer.caption}</Text> : null}
+        </View>
+      </Modal>
+
       <Modal visible={!!reason} animationType="slide" transparent onRequestClose={() => setReason(null)}>
         <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : undefined} style={styles.modalWrap}>
           <View style={styles.sheet}>
@@ -349,6 +365,11 @@ function Note({ tone, icon, title, text }: { tone: "hold" | "block"; icon: keyof
 }
 
 const styles = StyleSheet.create({
+  viewerWrap: { flex: 1, backgroundColor: "rgba(0,0,0,0.95)", justifyContent: "center" },
+  viewerBody: { flex: 1, justifyContent: "center" },
+  viewerImg: { width: "100%", height: "100%" },
+  viewerClose: { position: "absolute", top: 54, right: 20, zIndex: 10, width: 40, height: 40, borderRadius: 20, backgroundColor: "rgba(255,255,255,0.15)", alignItems: "center", justifyContent: "center" },
+  viewerCaption: { position: "absolute", bottom: 48, alignSelf: "center", color: "#fff", fontSize: 14, paddingHorizontal: 20, textAlign: "center" },
   flex: { flex: 1, backgroundColor: colors.bg },
   center: { flex: 1, alignItems: "center", justifyContent: "center" },
   content: { padding: spacing.lg, paddingBottom: 120 },
