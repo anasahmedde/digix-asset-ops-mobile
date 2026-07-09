@@ -13,6 +13,14 @@ export interface User {
 export interface Ticket {
   id: string;
   ticket_number?: string;
+  occurrence?: number;
+  issue_type?: string | null;
+  issue_type_name?: string | null;
+  assigned_vendor_name?: string | null;
+  parts_used?: string;
+  response_due_at?: string | null;
+  escalated?: boolean;
+  is_response_overdue?: boolean;
   title: string;
   description?: string;
   status: string;

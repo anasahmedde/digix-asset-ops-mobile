@@ -57,6 +57,8 @@ export const STATUS_TONES: Record<string, Tone> = {
   on_hold: { fg: "#475569", bg: "#eef1f5" },
   blocked: { fg: "#dc2626", bg: colors.dangerSoft },
   alignment_pending: { fg: "#7c3aed", bg: colors.violetSoft },
+  pending_ops_approval: { fg: "#c2410c", bg: colors.warningSoft },
+  pending_client_approval: { fg: "#6d28d9", bg: colors.violetSoft },
   pending_review: { fg: "#7c3aed", bg: colors.violetSoft },
   approved: { fg: "#047857", bg: colors.successSoft },
   rejected: { fg: "#dc2626", bg: colors.dangerSoft },
