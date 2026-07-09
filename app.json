@@ -51,6 +51,12 @@
       "expo-secure-store",
       "expo-asset",
       [
+        "expo-notifications",
+        {
+          "color": "#059669"
+        }
+      ],
+      [
         "expo-font",
         {
           "fonts": [
