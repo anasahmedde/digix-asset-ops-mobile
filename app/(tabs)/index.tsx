@@ -6,7 +6,7 @@ import { SafeAreaView } from "react-native-safe-area-context";
 
 import { TicketCard } from "@/components/ticket-card";
 import { Avatar, IconButton, Loading, SectionHeader, StatTile } from "@/components/ui";
-import { colors, font, radius, shadow, spacing } from "@/constants/theme";
+import { colors, font, radius, spacing } from "@/constants/theme";
 import api from "@/lib/api";
 import { greeting } from "@/lib/format";
 import { Ticket, User } from "@/lib/types";
@@ -90,7 +90,7 @@ export default function HomeScreen() {
             {ACTIONS.map((a) => (
               <Pressable key={a.label} style={styles.action} onPress={() => router.push(a.href as never)}>
                 <View style={[styles.actionIcon, { backgroundColor: a.tint + "1a" }]}>
-                  <Ionicons name={a.icon} size={22} color={a.tint} />
+                  <Ionicons name={a.icon} size={28} color={a.tint} />
                 </View>
                 <Text style={styles.actionLabel}>{a.label}</Text>
               </Pressable>
@@ -128,7 +128,7 @@ const styles = StyleSheet.create({
   quickTitle: { fontSize: font.h3, fontWeight: "800", color: colors.text, marginBottom: spacing.md },
   actions: { flexDirection: "row", justifyContent: "space-between", marginBottom: spacing.lg },
   action: { alignItems: "center", gap: 8, width: "23%" },
-  actionIcon: { width: 56, height: 56, borderRadius: radius.lg, alignItems: "center", justifyContent: "center", ...shadow.card, backgroundColor: colors.card },
+  actionIcon: { width: 56, height: 56, borderRadius: radius.lg, alignItems: "center", justifyContent: "center" },
   actionLabel: { fontSize: font.xs, color: colors.textMuted, fontWeight: "600", textAlign: "center" },
   link: { fontSize: font.sm, color: colors.primary, fontWeight: "700" },
   emptyMini: { flexDirection: "row", alignItems: "center", gap: spacing.sm, backgroundColor: colors.successSoft, borderRadius: radius.md, padding: spacing.lg },
