@@ -442,6 +442,7 @@ function buildActions(s: string, p: { isAssignee: boolean; isReviewer: boolean; 
     a.push({ key: "hold", label: "On Hold", icon: "pause", variant: "secondary" });
     a.push({ key: "block", label: "Blocked", icon: "alert", variant: "danger" });
   }
+  if (s === "rejected" && p.isAssignee) a.push({ key: "submit", label: "Resubmit for Review", icon: "checkmark-done", variant: "success" });
   if ((s === "on_hold" || s === "blocked" || s === "rejected") && p.isAssignee) a.push({ key: "resume", label: "Resume Work", icon: "play", variant: "primary", status: "in_progress" });
   if (s === "pending_ops_approval" && p.isReviewer) {
     a.push({ key: "approve_rect", label: "Approve Rectification", icon: "checkmark-circle", variant: "success", status: "in_progress" });

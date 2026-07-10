@@ -14,6 +14,7 @@ export interface Ticket {
   id: string;
   ticket_number?: string;
   occurrence?: number;
+  complaint_by?: string;
   issue_type?: string | null;
   issue_type_name?: string | null;
   assigned_vendor_name?: string | null;
