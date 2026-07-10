@@ -432,9 +432,9 @@ export default function TicketDetailScreen() {
 }
 
 type Act = { key: string; label: string; icon: keyof typeof Ionicons.glyphMap; variant: any; status?: string };
-function buildActions(s: string, p: { isAssignee: boolean; isReviewer: boolean; isMarketing: boolean }): Act[] {
+function buildActions(s: string, p: { isAssignee: boolean; isReviewer: boolean; isMarketing: boolean; isManager: boolean }): Act[] {
   const a: Act[] = [];
-  if (s === "open" && (p.isAssignee || p.isReviewer)) a.push({ key: "start", label: "Start Work", icon: "play", variant: "primary", status: "in_progress" });
+  if (s === "open" && (p.isAssignee || p.isManager)) a.push({ key: "start", label: "Start Work", icon: "play", variant: "primary", status: "in_progress" });
   if ((s === "in_progress" || s === "alignment_pending") && p.isAssignee) {
     a.push({ key: "submit", label: "Submit for Review", icon: "checkmark-done", variant: "success" });
     if (s === "in_progress") a.push({ key: "align", label: "Alignment", icon: "git-compare", variant: "secondary", status: "alignment_pending" });
