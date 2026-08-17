@@ -15,6 +15,7 @@ const STATUS_FILTERS = [
   { key: "installed", label: "Installed" },
   { key: "in_stock", label: "In Stock" },
   { key: "under_maintenance", label: "Maintenance" },
+  { key: "client_property", label: "Client Property" },
   { key: "assigned", label: "Assigned" },
   { key: "rma", label: "RMA" },
   { key: "decommissioned", label: "Decommissioned" },
@@ -25,6 +26,7 @@ const STATUS_TONE: Record<string, { fg: string; bg: string }> = {
   installed: { fg: colors.primary, bg: colors.primarySoft },
   in_stock: { fg: "#b45309", bg: "#fef3c7" },
   under_maintenance: { fg: "#b45309", bg: "#fef3c7" },
+  client_property: { fg: "#0f766e", bg: "#ccfbf1" },
   rma: { fg: colors.danger, bg: colors.dangerSoft },
   decommissioned: { fg: colors.textMuted, bg: colors.border },
 };
