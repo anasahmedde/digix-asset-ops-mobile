@@ -17,7 +17,7 @@ import { timeAgo, mediaUrl } from "@/lib/format";
 import { Ticket, User } from "@/lib/types";
 import { getCurrentUser } from "@/lib/user";
 
-const MANAGER_ROLES = ["super_admin", "ops_manager", "supervisor"];
+const MANAGER_ROLES = ["super_admin", "group_head", "ops_manager", "supervisor"];
 
 export default function TicketDetailScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
@@ -51,7 +51,7 @@ export default function TicketDetailScreen() {
     return {
       isAssignee: ticket.assigned_to === me.id,
       isReviewer: ticket.reported_by === me.id || MANAGER_ROLES.includes(me.role),
-      isMarketing: me.role === "marketing" || MANAGER_ROLES.includes(me.role),
+      isMarketing: ["marketing", "marketing_head"].includes(me.role) || MANAGER_ROLES.includes(me.role),
       isManager: MANAGER_ROLES.includes(me.role),
     };
   }, [ticket, me]);

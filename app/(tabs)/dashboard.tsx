@@ -25,24 +25,24 @@ interface Module {
 // Mirrors the web sidebar (role gates + sections). Native targets use in-app screens;
 // `web` targets open the embedded dashboard fallback until they're rebuilt natively.
 const MODULES: Module[] = [
-  { key: "assets", label: "Assets", icon: "hardware-chip-outline", tint: colors.primary, roles: ["super_admin", "ops_manager", "technician"], target: { native: "/admin/assets" } },
-  { key: "tickets", label: "Tickets", icon: "reader-outline", tint: "#f59e0b", roles: ["super_admin", "ops_manager", "supervisor", "technician"], target: { native: "/(tabs)/tickets" } },
-  { key: "sites", label: "Sites", icon: "location-outline", tint: colors.violet, roles: ["super_admin", "ops_manager", "technician"], target: { native: "/visits" } },
-  { key: "clients", label: "Clients", icon: "business-outline", tint: "#0ea5e9", roles: ["super_admin", "ops_manager", "client_viewer"], target: { native: "/admin/clients" } },
-  { key: "work-orders", label: "Work Orders", icon: "document-text-outline", tint: "#8b5cf6", roles: ["super_admin", "ops_manager"], target: { native: "/admin/work-orders" } },
-  { key: "installations", label: "Installations", icon: "layers-outline", tint: "#14b8a6", roles: ["super_admin", "ops_manager", "technician"], target: { web: "/installation-tracker", title: "Installation Tracker" } },
-  { key: "maintenance", label: "Maintenance", icon: "construct-outline", tint: "#f97316", roles: ["super_admin", "ops_manager", "technician"], target: { native: "/admin/maintenance" } },
-  { key: "inventory", label: "Inventory", icon: "cube-outline", tint: "#22c55e", roles: ["super_admin", "ops_manager", "warehouse"], target: { native: "/admin/inventory" } },
-  { key: "procurement", label: "Procurement", icon: "cart-outline", tint: "#ef4444", roles: ["super_admin", "ops_manager", "finance"], target: { native: "/admin/procurement" } },
-  { key: "warranties", label: "Warranties", icon: "shield-checkmark-outline", tint: "#10b981", roles: ["super_admin", "ops_manager"], target: { native: "/admin/warranties" } },
-  { key: "projects", label: "Projects", icon: "clipboard-outline", tint: "#6366f1", roles: ["super_admin", "ops_manager"], target: { native: "/admin/projects" } },
-  { key: "vendors", label: "Vendors", icon: "car-outline", tint: "#64748b", roles: ["super_admin", "ops_manager"], target: { native: "/admin/suppliers" } },
-  { key: "reports", label: "Reports", icon: "bar-chart-outline", tint: "#0891b2", roles: ["super_admin", "ops_manager", "finance"], target: { native: "/admin/reports" } },
-  { key: "alerts", label: "Alerts", icon: "alert-circle-outline", tint: "#dc2626", roles: ["super_admin", "ops_manager"], target: { native: "/admin/alerts" } },
-  { key: "attendance", label: "Attendance", icon: "finger-print-outline", tint: "#059669", roles: ["super_admin", "ops_manager", "supervisor"], target: { native: "/attendance" } },
-  { key: "documents", label: "Documents", icon: "folder-outline", tint: "#a855f7", roles: ["super_admin", "ops_manager"], target: { native: "/admin/documents" } },
+  { key: "assets", label: "Assets", icon: "hardware-chip-outline", tint: colors.primary, roles: ["super_admin", "group_head", "ops_manager", "technician"], target: { native: "/admin/assets" } },
+  { key: "tickets", label: "Tickets", icon: "reader-outline", tint: "#f59e0b", roles: ["super_admin", "group_head", "ops_manager", "supervisor", "technician"], target: { native: "/(tabs)/tickets" } },
+  { key: "sites", label: "Sites", icon: "location-outline", tint: colors.violet, roles: ["super_admin", "group_head", "ops_manager", "technician"], target: { native: "/visits" } },
+  { key: "clients", label: "Clients", icon: "business-outline", tint: "#0ea5e9", roles: ["super_admin", "group_head", "ops_manager", "client_viewer"], target: { native: "/admin/clients" } },
+  { key: "work-orders", label: "Work Orders", icon: "document-text-outline", tint: "#8b5cf6", roles: ["super_admin", "group_head", "ops_manager"], target: { native: "/admin/work-orders" } },
+  { key: "installations", label: "Installations", icon: "layers-outline", tint: "#14b8a6", roles: ["super_admin", "group_head", "ops_manager", "technician"], target: { web: "/installation-tracker", title: "Installation Tracker" } },
+  { key: "maintenance", label: "Maintenance", icon: "construct-outline", tint: "#f97316", roles: ["super_admin", "group_head", "ops_manager", "technician"], target: { native: "/admin/maintenance" } },
+  { key: "inventory", label: "Inventory", icon: "cube-outline", tint: "#22c55e", roles: ["super_admin", "group_head", "ops_manager", "warehouse"], target: { native: "/admin/inventory" } },
+  { key: "procurement", label: "Procurement", icon: "cart-outline", tint: "#ef4444", roles: ["super_admin", "group_head", "ops_manager", "finance"], target: { native: "/admin/procurement" } },
+  { key: "warranties", label: "Warranties", icon: "shield-checkmark-outline", tint: "#10b981", roles: ["super_admin", "group_head", "ops_manager"], target: { native: "/admin/warranties" } },
+  { key: "projects", label: "Projects", icon: "clipboard-outline", tint: "#6366f1", roles: ["super_admin", "group_head", "ops_manager"], target: { native: "/admin/projects" } },
+  { key: "vendors", label: "Vendors", icon: "car-outline", tint: "#64748b", roles: ["super_admin", "group_head", "ops_manager"], target: { native: "/admin/suppliers" } },
+  { key: "reports", label: "Reports", icon: "bar-chart-outline", tint: "#0891b2", roles: ["super_admin", "group_head", "ops_manager", "finance"], target: { native: "/admin/reports" } },
+  { key: "alerts", label: "Alerts", icon: "alert-circle-outline", tint: "#dc2626", roles: ["super_admin", "group_head", "ops_manager"], target: { native: "/admin/alerts" } },
+  { key: "attendance", label: "Attendance", icon: "finger-print-outline", tint: "#059669", roles: ["super_admin", "group_head", "ops_manager", "supervisor"], target: { native: "/attendance" } },
+  { key: "documents", label: "Documents", icon: "folder-outline", tint: "#a855f7", roles: ["super_admin", "group_head", "ops_manager"], target: { native: "/admin/documents" } },
   { key: "teams", label: "Teams", icon: "people-outline", tint: "#3b82f6", roles: ["super_admin"], target: { native: "/admin/teams" } },
-  { key: "setup", label: "Setup", icon: "options-outline", tint: "#64748b", roles: ["super_admin", "ops_manager"], target: { web: "/setup", title: "Setup" } },
+  { key: "setup", label: "Setup", icon: "options-outline", tint: "#64748b", roles: ["super_admin", "group_head", "ops_manager"], target: { web: "/setup", title: "Setup" } },
   { key: "settings", label: "Settings", icon: "settings-outline", tint: "#64748b", target: { native: "/admin/settings" } },
 ];
 
@@ -80,7 +80,7 @@ export default function DashboardHub() {
   const role = user?.role ?? "";
   const modules = MODULES.filter((m) => !m.roles || m.roles.includes(role));
   // Company-wide asset KPIs are for oversight roles only; field/limited roles just get their modules.
-  const isManager = ["super_admin", "ops_manager", "supervisor", "finance"].includes(role);
+  const isManager = ["super_admin", "group_head", "ops_manager", "supervisor", "finance"].includes(role);
 
   const kpis = [
     { label: "Total Screens", value: stats?.total ?? 0, icon: "tv-outline" as IconName, tint: colors.primary },
