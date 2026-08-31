@@ -22,6 +22,14 @@ export interface Ticket {
   response_due_at?: string | null;
   escalated?: boolean;
   is_response_overdue?: boolean;
+  escalation_state?: Record<string, string>;
+  closed_at?: string | null;
+  is_billable?: boolean;
+  charge_to?: string;
+  repair_cost?: string | null;
+  warranty_info?: { id: string; warranty_type: string; end_date: string; status: string } | null;
+  devices_info?: { id: string; asset_code: string; display_name: string | null }[];
+  assigned_vendor?: string | null;
   title: string;
   description?: string;
   status: string;
@@ -150,11 +158,15 @@ export interface AttendanceRecord {
 
 export const ROLE_LABELS: Record<string, string> = {
   super_admin: "Super Admin",
+  group_head: "Group Head",
   ops_manager: "Operations Manager",
+  marketing_head: "Marketing Head",
   supervisor: "Supervisor",
   technician: "Technician",
+  marketing: "Marketing",
   finance: "Finance",
   warehouse: "Warehouse Staff",
+  vendor: "Vendor",
   client_viewer: "Client Viewer",
 };
 

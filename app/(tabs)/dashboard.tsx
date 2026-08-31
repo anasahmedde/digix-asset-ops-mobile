@@ -25,17 +25,17 @@ interface Module {
 // Mirrors the web sidebar (role gates + sections). Native targets use in-app screens;
 // `web` targets open the embedded dashboard fallback until they're rebuilt natively.
 const MODULES: Module[] = [
-  { key: "assets", label: "Assets", icon: "hardware-chip-outline", tint: colors.primary, roles: ["super_admin", "group_head", "ops_manager", "technician"], target: { native: "/admin/assets" } },
-  { key: "tickets", label: "Tickets", icon: "reader-outline", tint: "#f59e0b", roles: ["super_admin", "group_head", "ops_manager", "supervisor", "technician"], target: { native: "/(tabs)/tickets" } },
+  { key: "assets", label: "Assets", icon: "hardware-chip-outline", tint: colors.primary, roles: ["super_admin", "group_head", "ops_manager", "technician", "marketing", "marketing_head"], target: { native: "/admin/assets" } },
+  { key: "tickets", label: "Tickets", icon: "reader-outline", tint: "#f59e0b", roles: ["super_admin", "group_head", "ops_manager", "supervisor", "technician", "marketing", "marketing_head", "vendor"], target: { native: "/(tabs)/tickets" } },
   { key: "sites", label: "Sites", icon: "location-outline", tint: colors.violet, roles: ["super_admin", "group_head", "ops_manager", "technician"], target: { native: "/visits" } },
   { key: "clients", label: "Clients", icon: "business-outline", tint: "#0ea5e9", roles: ["super_admin", "group_head", "ops_manager", "client_viewer"], target: { native: "/admin/clients" } },
   { key: "work-orders", label: "Work Orders", icon: "document-text-outline", tint: "#8b5cf6", roles: ["super_admin", "group_head", "ops_manager"], target: { native: "/admin/work-orders" } },
-  { key: "installations", label: "Installations", icon: "layers-outline", tint: "#14b8a6", roles: ["super_admin", "group_head", "ops_manager", "technician"], target: { web: "/installation-tracker", title: "Installation Tracker" } },
+  { key: "installations", label: "Installations", icon: "layers-outline", tint: "#14b8a6", roles: ["super_admin", "group_head", "ops_manager", "supervisor", "technician", "vendor"], target: { native: "/installations" } },
   { key: "maintenance", label: "Maintenance", icon: "construct-outline", tint: "#f97316", roles: ["super_admin", "group_head", "ops_manager", "technician"], target: { native: "/admin/maintenance" } },
   { key: "inventory", label: "Inventory", icon: "cube-outline", tint: "#22c55e", roles: ["super_admin", "group_head", "ops_manager", "warehouse"], target: { native: "/admin/inventory" } },
   { key: "procurement", label: "Procurement", icon: "cart-outline", tint: "#ef4444", roles: ["super_admin", "group_head", "ops_manager", "finance"], target: { native: "/admin/procurement" } },
-  { key: "warranties", label: "Warranties", icon: "shield-checkmark-outline", tint: "#10b981", roles: ["super_admin", "group_head", "ops_manager"], target: { native: "/admin/warranties" } },
-  { key: "projects", label: "Projects", icon: "clipboard-outline", tint: "#6366f1", roles: ["super_admin", "group_head", "ops_manager"], target: { native: "/admin/projects" } },
+  { key: "warranties", label: "Warranties", icon: "shield-checkmark-outline", tint: "#10b981", roles: ["super_admin", "group_head", "ops_manager", "marketing", "marketing_head"], target: { native: "/admin/warranties" } },
+  { key: "projects", label: "Projects", icon: "clipboard-outline", tint: "#6366f1", roles: ["super_admin", "group_head", "ops_manager", "marketing", "marketing_head"], target: { native: "/admin/projects" } },
   { key: "vendors", label: "Vendors", icon: "car-outline", tint: "#64748b", roles: ["super_admin", "group_head", "ops_manager"], target: { native: "/admin/suppliers" } },
   { key: "reports", label: "Reports", icon: "bar-chart-outline", tint: "#0891b2", roles: ["super_admin", "group_head", "ops_manager", "finance"], target: { native: "/admin/reports" } },
   { key: "alerts", label: "Alerts", icon: "alert-circle-outline", tint: "#dc2626", roles: ["super_admin", "group_head", "ops_manager"], target: { native: "/admin/alerts" } },
@@ -47,8 +47,10 @@ const MODULES: Module[] = [
 ];
 
 const ROLE_LABELS: Record<string, string> = {
-  super_admin: "Super Admin", ops_manager: "Ops Manager", supervisor: "Supervisor",
-  technician: "Technician", warehouse: "Warehouse", finance: "Finance", client_viewer: "Client",
+  super_admin: "Super Admin", group_head: "Group Head", ops_manager: "Ops Manager",
+  marketing_head: "Marketing Head", supervisor: "Supervisor", technician: "Technician",
+  marketing: "Marketing", warehouse: "Warehouse", finance: "Finance",
+  client_viewer: "Client", vendor: "Vendor",
 };
 
 export default function DashboardHub() {

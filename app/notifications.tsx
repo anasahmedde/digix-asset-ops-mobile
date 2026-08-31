@@ -14,6 +14,9 @@ const TYPE_META: Record<string, { icon: IconName; tint: string }> = {
   ticket_assigned: { icon: "person-add", tint: colors.primary },
   ticket_update: { icon: "sync", tint: colors.info },
   ticket_review: { icon: "eye", tint: colors.violet },
+  ticket_escalated: { icon: "trending-up", tint: colors.danger },
+  installation_assigned: { icon: "hammer", tint: colors.primary },
+  installation_escalated: { icon: "warning", tint: colors.danger },
   alert: { icon: "warning", tint: colors.warning },
   chat_message: { icon: "chatbubble", tint: colors.success },
   maintenance_reminder: { icon: "construct", tint: colors.warning },
@@ -41,7 +44,12 @@ export default function NotificationsScreen() {
   async function open(n: AppNotification) {
     if (!n.is_read) api.post(`/notifications/notifications/${n.id}/mark_read/`).catch(() => {});
     const ticketId = n.ticket || (n.data?.ticket_id as string | undefined);
+    const installationId =
+      (n as { installation?: string }).installation || (n.data?.installation_id as string | undefined);
     if (ticketId) router.push(`/ticket/${ticketId}`);
+    else if (installationId) router.push(`/installation/${installationId}`);
+    else if (n.notification_type === "installation_escalated") router.push("/installations");
+    else if (n.notification_type === "maintenance_reminder") router.push("/admin/maintenance");
     else load();
   }
 

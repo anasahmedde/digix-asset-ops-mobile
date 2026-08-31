@@ -21,8 +21,10 @@ interface Member {
 }
 
 const ROLE_LABELS: Record<string, string> = {
-  super_admin: "Super Admin", ops_manager: "Ops Manager", supervisor: "Supervisor",
-  technician: "Technician", warehouse: "Warehouse", finance: "Finance", client_viewer: "Client",
+  super_admin: "Super Admin", group_head: "Group Head", ops_manager: "Ops Manager",
+  marketing_head: "Marketing Head", supervisor: "Supervisor", technician: "Technician",
+  marketing: "Marketing", warehouse: "Warehouse", finance: "Finance",
+  client_viewer: "Client", vendor: "Vendor",
 };
 const ROLE_TONE: Record<string, { fg: string; bg: string }> = {
   super_admin: { fg: "#7c3aed", bg: "#f1ecfe" },

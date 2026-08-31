@@ -17,7 +17,7 @@ const ACTIONS: { label: string; icon: IconName; tint: string; href: string }[] =
   { label: "Scan Asset", icon: "scan-outline", tint: colors.primary, href: "/(tabs)/scan" },
   { label: "Check In", icon: "time-outline", tint: colors.success, href: "/attendance" },
   { label: "Site Visits", icon: "map-outline", tint: colors.violet, href: "/visits" },
-  { label: "Messages", icon: "chatbubbles-outline", tint: colors.warning, href: "/(tabs)/messages" },
+  { label: "Installs", icon: "layers-outline", tint: colors.warning, href: "/installations" },
 ];
 
 export default function HomeScreen() {
