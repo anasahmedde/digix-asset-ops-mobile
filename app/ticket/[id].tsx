@@ -9,7 +9,7 @@ import {
 import { toast } from "@/lib/toast";
 
 import {
-  Avatar, Button, Card, Loading, PriorityBadge, Row, SectionHeader, StatusPill, labelize,
+  Avatar, Button, Card, Loading, Pill, PriorityBadge, Row, SectionHeader, StatusPill, labelize,
 } from "@/components/ui";
 import { colors, font, radius, shadow, spacing } from "@/constants/theme";
 import api from "@/lib/api";
@@ -47,12 +47,21 @@ export default function TicketDetailScreen() {
   useEffect(() => { load(); }, [load]);
 
   const perms = useMemo(() => {
-    if (!ticket || !me) return { isAssignee: false, isReviewer: false, isMarketing: false, isManager: false };
+    if (!ticket || !me) return { isAssignee: false, isReviewer: false, isMarketing: false, isManager: false, canReopen: false };
+    // The API already scopes a vendor's tickets to their own supplier, so a
+    // visible ticket with a vendor assignment is theirs to work.
+    const vendorAssignee = me.role === "vendor" && !!ticket.assigned_vendor;
+    const within7d = ticket.closed_at
+      ? Date.now() - new Date(ticket.closed_at).getTime() <= 7 * 24 * 3600 * 1000
+      : false;
     return {
-      isAssignee: ticket.assigned_to === me.id,
+      isAssignee: ticket.assigned_to === me.id || vendorAssignee,
       isReviewer: ticket.reported_by === me.id || MANAGER_ROLES.includes(me.role),
       isMarketing: ["marketing", "marketing_head"].includes(me.role) || MANAGER_ROLES.includes(me.role),
       isManager: MANAGER_ROLES.includes(me.role),
+      canReopen:
+        ticket.status === "closed" && within7d &&
+        (["super_admin", "group_head", "ops_manager"].includes(me.role) || ticket.reported_by === me.id),
     };
   }, [ticket, me]);
 
@@ -180,6 +189,19 @@ export default function TicketDetailScreen() {
           <View style={styles.titleRow}>
             <StatusPill status={s} />
             <PriorityBadge priority={ticket.priority} />
+            {(() => {
+              if (s === "closed" || s === "approved") return null;
+              const l2 = Object.keys(ticket.escalation_state ?? {}).some((k) => k.endsWith(":2"));
+              if (ticket.escalated || l2) {
+                return <Pill label={l2 ? "Escalated · L2" : "Escalated"} fg="#b91c1c" bg="#fee2e2" />;
+              }
+              if (ticket.response_due_at) {
+                const hrs = (new Date(ticket.response_due_at).getTime() - Date.now()) / 3600000;
+                if (hrs < 0) return <Pill label="Response overdue" fg="#b91c1c" bg="#fee2e2" />;
+                if (hrs < 2) return <Pill label={`Respond in ${Math.max(1, Math.round(hrs * 60))}m`} fg="#b45309" bg="#fef3c7" />;
+              }
+              return null;
+            })()}
           </View>
           <Text style={styles.title}>{ticket.title}</Text>
 
@@ -191,6 +213,22 @@ export default function TicketDetailScreen() {
             <Row label="Assigned to" value={ticket.assigned_to_name || "Unassigned"} />
             <Row label="Reported by" value={ticket.reported_by_name || "—"} />
             <Row label="Due date" value={ticket.due_date || "—"} />
+            {ticket.warranty_info ? (
+              <Row
+                label="Warranty"
+                value={`${labelize(ticket.warranty_info.warranty_type)} · until ${ticket.warranty_info.end_date}`}
+              />
+            ) : null}
+            {ticket.is_billable !== undefined ? (
+              <Row
+                label="Billing"
+                value={ticket.is_billable ? `Billable to ${labelize(ticket.charge_to || "client")}` : "Covered — no client charge"}
+              />
+            ) : null}
+            {ticket.repair_cost ? <Row label="Repair cost" value={String(ticket.repair_cost)} /> : null}
+            {ticket.devices_info && ticket.devices_info.length > 1 ? (
+              <Row label="Assets covered" value={ticket.devices_info.map((d) => d.asset_code).join(", ")} />
+            ) : null}
           </Card>
 
           {ticket.description ? (
@@ -296,6 +334,7 @@ export default function TicketDetailScreen() {
                 style={{ flexGrow: 1, minWidth: actions.length > 2 ? "46%" : undefined }}
                 onPress={() => {
                   if (a.key === "submit") setCompletion({ notes: "", parts: "", photos: [] });
+                  else if (a.key === "reopen") setReason({ status: "in_progress", title: "Why is this being reopened?", text: "" });
                   else if (a.key === "hold") setReason({ status: "on_hold", title: "Reason for hold", text: "" });
                   else if (a.key === "block") setReason({ status: "blocked", title: "Reason for blocker", text: "" });
                   else if (a.key === "ops_approval") setReason({ status: "pending_ops_approval", title: "What needs approval?", text: "" });
@@ -432,8 +471,9 @@ export default function TicketDetailScreen() {
 }
 
 type Act = { key: string; label: string; icon: keyof typeof Ionicons.glyphMap; variant: any; status?: string };
-function buildActions(s: string, p: { isAssignee: boolean; isReviewer: boolean; isMarketing: boolean; isManager: boolean }): Act[] {
+function buildActions(s: string, p: { isAssignee: boolean; isReviewer: boolean; isMarketing: boolean; isManager: boolean; canReopen: boolean }): Act[] {
   const a: Act[] = [];
+  if (s === "closed" && p.canReopen) a.push({ key: "reopen", label: "Reopen Ticket", icon: "refresh", variant: "secondary" });
   if (s === "open" && (p.isAssignee || p.isManager)) a.push({ key: "start", label: "Start Work", icon: "play", variant: "primary", status: "in_progress" });
   if ((s === "in_progress" || s === "alignment_pending") && p.isAssignee) {
     a.push({ key: "submit", label: "Submit for Review", icon: "checkmark-done", variant: "success" });

@@ -37,6 +37,7 @@ export default function RootLayout() {
         <Stack.Screen name="visits" options={{ ...headerStyle, title: "Site Visits" }} />
         <Stack.Screen name="site/[id]" options={{ ...headerStyle, title: "Site" }} />
         <Stack.Screen name="installation/[id]" options={{ ...headerStyle, title: "Installation" }} />
+        <Stack.Screen name="installations" options={{ ...headerStyle, title: "Installations" }} />
         <Stack.Screen name="web-view" options={{ ...headerStyle, title: "DIGIX" }} />
         <Stack.Screen name="admin/assets" options={{ ...headerStyle, title: "Assets" }} />
         <Stack.Screen name="admin/clients" options={{ ...headerStyle, title: "Clients" }} />

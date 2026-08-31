@@ -6,13 +6,16 @@ import {
   StyleSheet, Text, TextInput, View,
 } from "react-native";
 
+import { getCurrentUser } from "@/lib/user";
+
 import { Button, Card, EmptyState, Loading, Row, StatusPill } from "@/components/ui";
 import { colors, font, radius, spacing } from "@/constants/theme";
 import api from "@/lib/api";
 import { toast } from "@/lib/toast";
 import { Device, labelize } from "@/lib/types";
 
-const CATEGORIES = ["repair", "replacement", "inspection", "relocation", "installation", "other"];
+const CATEGORIES = ["repair", "replacement", "warranty_claim", "preventive_maintenance", "inspection", "relocation", "installation", "other"];
+const TRANSITION_ROLES = ["super_admin", "group_head", "ops_manager", "supervisor", "warehouse"];
 const PRIORITIES = ["low", "medium", "high", "critical"];
 const WARRANTY_TONE: Record<string, { fg: string; bg: string; label: string }> = {
   active: { fg: "#047857", bg: colors.successSoft, label: "Under Warranty" },
@@ -28,16 +31,29 @@ export default function AssetDetailScreen() {
   const [form, setForm] = useState<{ title: string; category: string; priority: string; description: string } | null>(null);
   const [saving, setSaving] = useState(false);
   const [install, setInstall] = useState<{ id: string; progress: number } | null>(null);
+  const [allowed, setAllowed] = useState<string[]>([]);
+  const [role, setRole] = useState<string>("");
+  const [transitionTo, setTransitionTo] = useState<string | null>(null);
+  const [transitionReason, setTransitionReason] = useState("");
+  const [transitioning, setTransitioning] = useState(false);
 
   useEffect(() => {
     (async () => {
       try {
-        const { data } = await api.get("/assets/devices/", { params: { search: code, page_size: 1 } });
+        const { data } = await api.get("/assets/devices/", { params: { search: code, page_size: 10 } });
         const results = data.results ?? data;
-        if (results.length) {
-          setDevice(results[0]);
+        // Prefer the exact asset-code match — a fuzzy search must not open
+        // the wrong asset off a partial scan.
+        const match = results.find((r: Device) => r.asset_code === code) ?? results[0];
+        if (match) {
+          setDevice(match);
           try {
-            const inst = await api.get("/sites/installations/", { params: { device: results[0].id, ordering: "-installed_at", page_size: 1 } });
+            const detail = await api.get(`/assets/devices/${match.id}/`);
+            setDevice(detail.data);
+            setAllowed(detail.data.allowed_transitions ?? []);
+          } catch { /* keep list row */ }
+          try {
+            const inst = await api.get("/sites/installations/", { params: { device: match.id, ordering: "-installed_at", page_size: 1 } });
             const list = inst.data.results ?? inst.data;
             if (list.length) setInstall({ id: list[0].id, progress: list[0].progress ?? 0 });
           } catch { /* no installation */ }
@@ -45,7 +61,26 @@ export default function AssetDetailScreen() {
       } catch { setNotFound(true); }
       finally { setLoading(false); }
     })();
+    getCurrentUser().then((u) => setRole(u.role)).catch(() => {});
   }, [code]);
+
+  async function submitTransition() {
+    if (!device || !transitionTo) return;
+    if (!transitionReason.trim()) { toast.error("A reason is required"); return; }
+    setTransitioning(true);
+    try {
+      const { data } = await api.post(`/assets/devices/${device.id}/transition/`, {
+        status: transitionTo, reason: transitionReason.trim(),
+      });
+      setDevice(data);
+      setAllowed(data.allowed_transitions ?? []);
+      setTransitionTo(null);
+      setTransitionReason("");
+      toast.success(`Status updated to ${labelize(data.status)}`);
+    } catch (e: any) {
+      toast.error(e?.response?.data?.detail || e?.response?.data?.status?.[0] || "Could not change status");
+    } finally { setTransitioning(false); }
+  }
 
   async function raiseTicket() {
     if (!form?.title.trim()) { toast.error("Please enter a title"); return; }
@@ -98,6 +133,19 @@ export default function AssetDetailScreen() {
             <Row label="Client" value={device.client_name || "—"} />
           </Card>
 
+          {TRANSITION_ROLES.includes(role) && allowed.length > 0 ? (
+            <Card style={{ marginTop: spacing.lg }}>
+              <Text style={styles.instTitle}>Change status</Text>
+              <View style={styles.pillRow}>
+                {allowed.map((st) => (
+                  <Pressable key={st} onPress={() => setTransitionTo(st)} style={styles.selPill}>
+                    <Text style={styles.selPillText}>{labelize(st)}</Text>
+                  </Pressable>
+                ))}
+              </View>
+            </Card>
+          ) : null}
+
           {install ? (
             <Card style={{ marginTop: spacing.lg }} onPress={() => router.push(`/installation/${install.id}`)}>
               <View style={styles.instRow}>
@@ -120,6 +168,27 @@ export default function AssetDetailScreen() {
           />
         </ScrollView>
       </View>
+
+      <Modal visible={!!transitionTo} animationType="fade" transparent onRequestClose={() => setTransitionTo(null)}>
+        <View style={styles.modalWrap}>
+          <View style={styles.sheet}>
+            <View style={styles.sheetHead}>
+              <Text style={styles.sheetTitle}>Move to {transitionTo ? labelize(transitionTo) : ""}</Text>
+              <Pressable onPress={() => setTransitionTo(null)}><Ionicons name="close" size={24} color={colors.textMuted} /></Pressable>
+            </View>
+            <Text style={styles.label}>Reason (required)</Text>
+            <TextInput
+              value={transitionReason}
+              onChangeText={setTransitionReason}
+              placeholder="Why is the status changing?"
+              placeholderTextColor={colors.textLight}
+              multiline
+              style={[styles.input, { height: 80, textAlignVertical: "top" }]}
+            />
+            <Button title="Confirm status change" icon="checkmark" loading={transitioning} onPress={submitTransition} style={{ marginTop: spacing.md }} />
+          </View>
+        </View>
+      </Modal>
 
       <Modal visible={!!form} animationType="slide" transparent onRequestClose={() => setForm(null)}>
         <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : undefined} style={styles.modalWrap}>
