@@ -1,6 +1,6 @@
 import { Ionicons } from "@expo/vector-icons";
 import { Stack, useLocalSearchParams } from "expo-router";
-import * as SecureStore from "expo-secure-store";
+import * as SecureStore from "@/lib/secure-store";
 import { useEffect, useRef, useState } from "react";
 import { ActivityIndicator, Pressable, StyleSheet, Text, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
@@ -22,8 +22,8 @@ export default function WebViewScreen() {
   useEffect(() => {
     (async () => {
       const [access, refresh] = await Promise.all([
-        SecureStore.getItemAsync("access_token"),
-        SecureStore.getItemAsync("refresh_token"),
+        SecureStore.getItem("access_token"),
+        SecureStore.getItem("refresh_token"),
       ]);
       if (access) setTokens({ access, refresh: refresh ?? "" });
       setReady(true);

@@ -15,7 +15,9 @@ import { toast } from "@/lib/toast";
 import { Device, labelize } from "@/lib/types";
 
 const CATEGORIES = ["repair", "replacement", "warranty_claim", "preventive_maintenance", "inspection", "relocation", "installation", "other"];
-const TRANSITION_ROLES = ["super_admin", "group_head", "ops_manager", "supervisor", "warehouse"];
+// Moving an asset along its lifecycle is a capability on the desktop; the
+// field app asks the same question rather than keeping its own role list.
+const MOVE_STAGE = "move_asset_stage";
 const PRIORITIES = ["low", "medium", "high", "critical"];
 const WARRANTY_TONE: Record<string, { fg: string; bg: string; label: string }> = {
   active: { fg: "#047857", bg: colors.successSoft, label: "Under Warranty" },
@@ -32,7 +34,7 @@ export default function AssetDetailScreen() {
   const [saving, setSaving] = useState(false);
   const [install, setInstall] = useState<{ id: string; progress: number } | null>(null);
   const [allowed, setAllowed] = useState<string[]>([]);
-  const [role, setRole] = useState<string>("");
+  const [can, setCan] = useState<string[]>([]);
   const [transitionTo, setTransitionTo] = useState<string | null>(null);
   const [transitionReason, setTransitionReason] = useState("");
   const [transitioning, setTransitioning] = useState(false);
@@ -61,7 +63,7 @@ export default function AssetDetailScreen() {
       } catch { setNotFound(true); }
       finally { setLoading(false); }
     })();
-    getCurrentUser().then((u) => setRole(u.role)).catch(() => {});
+    getCurrentUser().then((u) => setCan(u.capabilities ?? [])).catch(() => {});
   }, [code]);
 
   async function submitTransition() {
@@ -133,7 +135,7 @@ export default function AssetDetailScreen() {
             <Row label="Client" value={device.client_name || "—"} />
           </Card>
 
-          {TRANSITION_ROLES.includes(role) && allowed.length > 0 ? (
+          {can.includes(MOVE_STAGE) && allowed.length > 0 ? (
             <Card style={{ marginTop: spacing.lg }}>
               <Text style={styles.instTitle}>Change status</Text>
               <View style={styles.pillRow}>

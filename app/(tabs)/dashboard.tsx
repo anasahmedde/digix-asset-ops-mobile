@@ -18,39 +18,42 @@ interface Module {
   label: string;
   icon: IconName;
   tint: string;
-  roles?: string[]; // undefined = everyone
+  /** Shown to anyone holding this capability. Undefined = everyone. */
+  capability?: string;
   target: Target;
 }
 
-// Mirrors the web sidebar (role gates + sections). Native targets use in-app screens;
-// `web` targets open the embedded dashboard fallback until they're rebuilt natively.
+// Mirrors the web sidebar. Each module names the capability that earns it,
+// so changing what a role may do on the web changes this app too, without a
+// release. Native targets use in-app screens; `web` targets open the
+// embedded dashboard fallback until they are rebuilt natively.
 const MODULES: Module[] = [
-  { key: "assets", label: "Assets", icon: "hardware-chip-outline", tint: colors.primary, roles: ["super_admin", "group_head", "ops_manager", "technician", "marketing", "marketing_head"], target: { native: "/admin/assets" } },
-  { key: "tickets", label: "Tickets", icon: "reader-outline", tint: "#f59e0b", roles: ["super_admin", "group_head", "ops_manager", "supervisor", "technician", "marketing", "marketing_head", "vendor"], target: { native: "/(tabs)/tickets" } },
-  { key: "sites", label: "Sites", icon: "location-outline", tint: colors.violet, roles: ["super_admin", "group_head", "ops_manager", "technician"], target: { native: "/visits" } },
-  { key: "clients", label: "Clients", icon: "business-outline", tint: "#0ea5e9", roles: ["super_admin", "group_head", "ops_manager", "client_viewer"], target: { native: "/admin/clients" } },
-  { key: "work-orders", label: "Work Orders", icon: "document-text-outline", tint: "#8b5cf6", roles: ["super_admin", "group_head", "ops_manager"], target: { native: "/admin/work-orders" } },
-  { key: "installations", label: "Installations", icon: "layers-outline", tint: "#14b8a6", roles: ["super_admin", "group_head", "ops_manager", "supervisor", "technician", "vendor"], target: { native: "/installations" } },
-  { key: "maintenance", label: "Maintenance", icon: "construct-outline", tint: "#f97316", roles: ["super_admin", "group_head", "ops_manager", "technician"], target: { native: "/admin/maintenance" } },
-  { key: "inventory", label: "Inventory", icon: "cube-outline", tint: "#22c55e", roles: ["super_admin", "group_head", "ops_manager", "warehouse"], target: { native: "/admin/inventory" } },
-  { key: "procurement", label: "Procurement", icon: "cart-outline", tint: "#ef4444", roles: ["super_admin", "group_head", "ops_manager", "finance"], target: { native: "/admin/procurement" } },
-  { key: "warranties", label: "Warranties", icon: "shield-checkmark-outline", tint: "#10b981", roles: ["super_admin", "group_head", "ops_manager", "marketing", "marketing_head"], target: { native: "/admin/warranties" } },
-  { key: "projects", label: "Projects", icon: "clipboard-outline", tint: "#6366f1", roles: ["super_admin", "group_head", "ops_manager", "marketing", "marketing_head"], target: { native: "/admin/projects" } },
-  { key: "vendors", label: "Vendors", icon: "car-outline", tint: "#64748b", roles: ["super_admin", "group_head", "ops_manager"], target: { native: "/admin/suppliers" } },
-  { key: "reports", label: "Reports", icon: "bar-chart-outline", tint: "#0891b2", roles: ["super_admin", "group_head", "ops_manager", "finance"], target: { native: "/admin/reports" } },
-  { key: "alerts", label: "Alerts", icon: "alert-circle-outline", tint: "#dc2626", roles: ["super_admin", "group_head", "ops_manager"], target: { native: "/admin/alerts" } },
-  { key: "attendance", label: "Attendance", icon: "finger-print-outline", tint: "#059669", roles: ["super_admin", "group_head", "ops_manager", "supervisor"], target: { native: "/attendance" } },
-  { key: "documents", label: "Documents", icon: "folder-outline", tint: "#a855f7", roles: ["super_admin", "group_head", "ops_manager"], target: { native: "/admin/documents" } },
-  { key: "teams", label: "Teams", icon: "people-outline", tint: "#3b82f6", roles: ["super_admin"], target: { native: "/admin/teams" } },
-  { key: "setup", label: "Setup", icon: "options-outline", tint: "#64748b", roles: ["super_admin", "group_head", "ops_manager"], target: { web: "/setup", title: "Setup" } },
+  { key: "assets", label: "Assets", icon: "hardware-chip-outline", tint: colors.primary, capability: "view_assets", target: { native: "/admin/assets" } },
+  { key: "tickets", label: "Tickets", icon: "reader-outline", tint: "#f59e0b", capability: "view_tickets", target: { native: "/(tabs)/tickets" } },
+  { key: "sites", label: "Sites", icon: "location-outline", tint: colors.violet, capability: "view_projects", target: { native: "/visits" } },
+  { key: "clients", label: "Clients", icon: "business-outline", tint: "#0ea5e9", capability: "view_clients", target: { native: "/admin/clients" } },
+  { key: "work-orders", label: "Work Orders", icon: "document-text-outline", tint: "#8b5cf6", capability: "view_projects", target: { native: "/admin/work-orders" } },
+  { key: "installations", label: "Installations", icon: "layers-outline", tint: "#14b8a6", capability: "edit_installation", target: { native: "/installations" } },
+  { key: "maintenance", label: "Maintenance", icon: "construct-outline", tint: "#f97316", capability: "manage_maintenance", target: { native: "/admin/maintenance" } },
+  { key: "inventory", label: "Inventory", icon: "cube-outline", tint: "#22c55e", capability: "view_stock", target: { native: "/admin/inventory" } },
+  { key: "procurement", label: "Procurement", icon: "cart-outline", tint: "#ef4444", capability: "raise_po", target: { native: "/admin/procurement" } },
+  { key: "warranties", label: "Warranties", icon: "shield-checkmark-outline", tint: "#10b981", capability: "view_warranties", target: { native: "/admin/warranties" } },
+  { key: "projects", label: "Projects", icon: "clipboard-outline", tint: "#6366f1", capability: "view_projects", target: { native: "/admin/projects" } },
+  { key: "vendors", label: "Vendors", icon: "car-outline", tint: "#64748b", capability: "manage_suppliers", target: { native: "/admin/suppliers" } },
+  { key: "reports", label: "Reports", icon: "bar-chart-outline", tint: "#0891b2", capability: "view_reports", target: { native: "/admin/reports" } },
+  { key: "alerts", label: "Alerts", icon: "alert-circle-outline", tint: "#dc2626", capability: "view_reports", target: { native: "/admin/alerts" } },
+  { key: "attendance", label: "Attendance", icon: "finger-print-outline", tint: "#059669", capability: "view_attendance", target: { native: "/attendance" } },
+  { key: "documents", label: "Documents", icon: "folder-outline", tint: "#a855f7", capability: "view_reports", target: { native: "/admin/documents" } },
+  { key: "teams", label: "Teams", icon: "people-outline", tint: "#3b82f6", capability: "view_team", target: { native: "/admin/teams" } },
+  { key: "setup", label: "Setup", icon: "options-outline", tint: "#64748b", capability: "manage_setup", target: { web: "/setup", title: "Setup" } },
   { key: "settings", label: "Settings", icon: "settings-outline", tint: "#64748b", target: { native: "/admin/settings" } },
 ];
 
 const ROLE_LABELS: Record<string, string> = {
-  super_admin: "Super Admin", group_head: "Group Head", ops_manager: "Ops Manager",
+  super_admin: "Super Admin", group_head: "Group Head", ops_manager: "Operations Head",
   marketing_head: "Marketing Head", supervisor: "Supervisor", technician: "Technician",
-  marketing: "Marketing", warehouse: "Warehouse", finance: "Finance",
-  client_viewer: "Client", vendor: "Vendor",
+  marketing: "Marketing", warehouse: "Warehouse Staff", finance: "Finance",
+  client_viewer: "Client Viewer", vendor: "Vendor",
 };
 
 export default function DashboardHub() {
@@ -80,9 +83,12 @@ export default function DashboardHub() {
   if (loading) return <Loading />;
 
   const role = user?.role ?? "";
-  const modules = MODULES.filter((m) => !m.roles || m.roles.includes(role));
-  // Company-wide asset KPIs are for oversight roles only; field/limited roles just get their modules.
-  const isManager = ["super_admin", "group_head", "ops_manager", "supervisor", "finance"].includes(role);
+  const can = user?.capabilities ?? [];
+  const modules = MODULES.filter((m) => !m.capability || can.includes(m.capability));
+  // Company-wide asset figures are oversight, so they follow the same
+  // capability the desktop uses for reporting — a technician sees their own
+  // work, not the whole estate's numbers.
+  const isManager = can.includes("view_reports");
 
   const kpis = [
     { label: "Total Screens", value: stats?.total ?? 0, icon: "tv-outline" as IconName, tint: colors.primary },
@@ -136,7 +142,10 @@ export default function DashboardHub() {
             </Pressable>
           ))}
         </View>
-        <Text style={styles.hint}>Modules with a dot open the web view for now — being rebuilt natively.</Text>
+        {/* Only worth saying when this person can actually see one. */}
+        {modules.some((m) => "web" in m.target) && (
+          <Text style={styles.hint}>Modules with a dot open the web view for now — being rebuilt natively.</Text>
+        )}
       </ScrollView>
     </SafeAreaView>
   );

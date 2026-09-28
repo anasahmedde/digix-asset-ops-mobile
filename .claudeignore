@@ -1,0 +1,12 @@
+﻿node_modules/
+.next/
+dist/
+build/
+__pycache__/
+*.pyc
+.venv/
+venv/
+staticfiles/
+media/
+package-lock.json
+yarn.lock

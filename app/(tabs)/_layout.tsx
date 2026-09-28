@@ -1,6 +1,7 @@
 import { Ionicons } from "@expo/vector-icons";
 import { Tabs } from "expo-router";
 import { useCallback, useEffect, useState } from "react";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { colors } from "@/constants/theme";
 import api from "@/lib/api";
@@ -8,6 +9,10 @@ import { registerForPush, setupNotificationTapHandler } from "@/lib/push";
 
 export default function TabLayout() {
   const [unread, setUnread] = useState(0);
+  // A fixed bar height puts the labels under the home indicator on phones
+  // that have one, and clips them on those that do not. The bar is as tall
+  // as its content plus whatever the device reserves at the bottom.
+  const insets = useSafeAreaInsets();
 
   const loadUnread = useCallback(async () => {
     try {
@@ -40,8 +45,8 @@ export default function TabLayout() {
         tabBarStyle: {
           backgroundColor: colors.card,
           borderTopColor: colors.border,
-          height: 62,
-          paddingBottom: 8,
+          height: 62 + insets.bottom,
+          paddingBottom: 8 + insets.bottom,
           paddingTop: 6,
         },
         tabBarLabelStyle: { fontSize: 11, fontWeight: "600" },

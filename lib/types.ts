@@ -6,8 +6,18 @@ export interface User {
   last_name: string;
   full_name: string;
   role: string;
+  /** The person's organogram title — their job, not their rights. */
+  job_title?: string;
   phone: string;
   is_field_staff: boolean;
+  /**
+   * Everything this person may do, after their role's defaults have been
+   * adjusted for them. Roles are editable records now, so this — not the
+   * role name — is what decides whether a screen is offered.
+   */
+  capabilities?: string[];
+  reports_to?: string | null;
+  reports_to_name?: string | null;
 }
 
 export interface Ticket {

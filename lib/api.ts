@@ -1,6 +1,6 @@
 import axios from "axios";
 import { router } from "expo-router";
-import * as SecureStore from "expo-secure-store";
+import * as SecureStore from "@/lib/secure-store";
 
 const API_URL = process.env.EXPO_PUBLIC_API_URL || "http://localhost:8000/api";
 
@@ -13,7 +13,7 @@ const api = axios.create({
 });
 
 api.interceptors.request.use(async (config) => {
-  const token = await SecureStore.getItemAsync("access_token");
+  const token = await SecureStore.getItem("access_token");
   if (token) {
     config.headers.Authorization = `Bearer ${token}`;
   }
@@ -28,19 +28,19 @@ api.interceptors.request.use(async (config) => {
 let refreshPromise: Promise<string> | null = null;
 
 async function refreshAccessToken(): Promise<string> {
-  const refreshToken = await SecureStore.getItemAsync("refresh_token");
+  const refreshToken = await SecureStore.getItem("refresh_token");
   if (!refreshToken) throw new Error("No refresh token");
   const { data } = await axios.post(`${API_URL}/auth/token/refresh/`, { refresh: refreshToken });
-  await SecureStore.setItemAsync("access_token", data.access);
+  await SecureStore.setItem("access_token", data.access);
   if (data.refresh) {
-    await SecureStore.setItemAsync("refresh_token", data.refresh);
+    await SecureStore.setItem("refresh_token", data.refresh);
   }
   return data.access as string;
 }
 
 async function forceLogout() {
-  await SecureStore.deleteItemAsync("access_token");
-  await SecureStore.deleteItemAsync("refresh_token");
+  await SecureStore.deleteItem("access_token");
+  await SecureStore.deleteItem("refresh_token");
   try {
     router.replace("/(auth)/login");
   } catch {
