@@ -1,52 +1,44 @@
 import { Ionicons } from "@expo/vector-icons";
 import { router, useFocusEffect } from "expo-router";
 import { useCallback, useState } from "react";
-import { Pressable, RefreshControl, ScrollView, StyleSheet, Text, View } from "react-native";
+import { Pressable, RefreshControl, ScrollView, StyleSheet, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 
-import { TicketCard } from "@/components/ticket-card";
-import { Avatar, IconButton, Loading, SectionHeader, StatTile } from "@/components/ui";
+import { Wash } from "@/components/field";
+import { Text } from "@/components/text";
+import { Avatar, Button, Card, IconButton, Loading, Pill } from "@/components/ui";
 import { colors, font, radius, spacing } from "@/constants/theme";
 import api from "@/lib/api";
-import { greeting } from "@/lib/format";
-import { Ticket, User } from "@/lib/types";
+import { Presence, checkOut, getPresence } from "@/lib/attendance";
+import { greeting, timeAgo } from "@/lib/format";
+import { InstallationJob, MaintenanceJob, isOpenInstallation, isOpenMaintenance, myInstallations, myMaintenance } from "@/lib/jobs";
+import { toast } from "@/lib/toast";
+import { User } from "@/lib/types";
 import { getCurrentUser } from "@/lib/user";
 
-type IconName = keyof typeof Ionicons.glyphMap;
-const ACTIONS: { label: string; icon: IconName; tint: string; href: string }[] = [
-  { label: "Scan Asset", icon: "scan-outline", tint: colors.primary, href: "/(tabs)/scan" },
-  { label: "Check In", icon: "time-outline", tint: colors.success, href: "/attendance" },
-  { label: "Site Visits", icon: "map-outline", tint: colors.violet, href: "/visits" },
-  { label: "Installs", icon: "layers-outline", tint: colors.warning, href: "/installations" },
-];
-
-export default function HomeScreen() {
+/** Today: where you are clocked in, what is waiting, and the notices. */
+export default function TodayScreen() {
   const [user, setUser] = useState<User | null>(null);
-  const [tickets, setTickets] = useState<Ticket[]>([]);
-  const [stats, setStats] = useState({ total: 0, overdue: 0, in_progress: 0 });
+  const [presence, setPresence] = useState<Presence | null>(null);
+  const [installs, setInstalls] = useState<InstallationJob[]>([]);
+  const [jobs, setJobs] = useState<MaintenanceJob[]>([]);
   const [unread, setUnread] = useState(0);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
+  const [busy, setBusy] = useState(false);
 
   const load = useCallback(async () => {
     try {
-      const [me, summary, notif] = await Promise.allSettled([
-        getCurrentUser(),
-        api.get("/notifications/notifications/assigned_tickets_summary/"),
+      const me = await getCurrentUser();
+      setUser(me);
+      const [p, i, m, n] = await Promise.allSettled([
+        getPresence(), myInstallations(me.id), myMaintenance(me.id),
         api.get("/notifications/notifications/unread_count/"),
       ]);
-      if (me.status === "fulfilled") setUser(me.value);
-      if (notif.status === "fulfilled") setUnread(notif.value.data.count ?? 0);
-      if (summary.status === "fulfilled") {
-        const d = summary.value.data;
-        const list: Ticket[] = d.tickets ?? [];
-        setTickets(list);
-        setStats({
-          total: d.total ?? list.length,
-          overdue: d.overdue ?? 0,
-          in_progress: list.filter((t) => t.status === "in_progress").length,
-        });
-      }
+      if (p.status === "fulfilled") setPresence(p.value);
+      if (i.status === "fulfilled") setInstalls(i.value.filter(isOpenInstallation));
+      if (m.status === "fulfilled") setJobs(m.value.filter(isOpenMaintenance));
+      if (n.status === "fulfilled") setUnread(n.value.data.count ?? 0);
     } finally {
       setLoading(false);
       setRefreshing(false);
@@ -55,82 +47,129 @@ export default function HomeScreen() {
 
   useFocusEffect(useCallback(() => { load(); }, [load]));
 
+  async function leaveSite() {
+    setBusy(true);
+    try {
+      setPresence(await checkOut(presence?.site ?? null));
+      toast.success("Checked out");
+    } catch {
+      toast.error("Could not check out");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  const today = new Date().toISOString().slice(0, 10);
+  const dueToday = installs.filter((j) => j.due_date && j.due_date <= today).length
+    + jobs.filter((j) => j.next_due && j.next_due <= today).length;
+  const awaiting = jobs.filter((j) => j.status === "in_process").length;
+
   return (
-    <SafeAreaView style={styles.safe} edges={["top"]}>
-      {/* Header */}
-      <View style={styles.header}>
-        <View style={{ flex: 1 }}>
-          <Text style={styles.greeting}>{greeting()},</Text>
-          <Text style={styles.name} numberOfLines={1}>{user?.full_name || user?.username || "Field Staff"}</Text>
+    <Wash>
+      <SafeAreaView style={{ flex: 1 }} edges={["top"]}>
+        <View style={styles.header}>
+          <View style={{ flex: 1 }}>
+            <Text style={styles.greet}>{greeting()},</Text>
+            <Text style={styles.name} numberOfLines={1}>{user?.full_name || user?.username || "…"}</Text>
+          </View>
+          <IconButton name="notifications-outline" badge={unread} onPress={() => router.push("/notifications")} />
+          <Pressable onPress={() => router.push("/(tabs)/profile")}>
+            <Avatar name={user?.full_name || user?.username} size={38} />
+          </Pressable>
         </View>
-        <IconButton name="notifications-outline" badge={unread} onPress={() => router.push("/notifications")} />
-        <Pressable onPress={() => router.push("/(tabs)/profile")}>
-          <Avatar name={user?.full_name || user?.username} size={40} />
-        </Pressable>
-      </View>
 
-      {loading ? (
-        <Loading />
-      ) : (
-        <ScrollView
-          contentContainerStyle={styles.content}
-          showsVerticalScrollIndicator={false}
-          refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => { setRefreshing(true); load(); }} />}
-        >
-          {/* Stats */}
-          <View style={styles.statsRow}>
-            <StatTile value={stats.total} label="Assigned" icon="briefcase-outline" tint={colors.primary} />
-            <StatTile value={stats.in_progress} label="In Progress" icon="build-outline" tint={colors.warning} />
-            <StatTile value={stats.overdue} label="Overdue" icon="alert-circle-outline" tint={colors.danger} />
-          </View>
+        {loading ? <Loading /> : (
+          <ScrollView
+            contentContainerStyle={{ padding: spacing.lg, paddingTop: 0, paddingBottom: spacing.xxxl }}
+            refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => { setRefreshing(true); load(); }} />}
+          >
+            {/* Where you are */}
+            <Card style={[styles.presence, presence?.checked_in && { backgroundColor: colors.primaryDark }]}>
+              <View style={{ flex: 1 }}>
+                <Text style={[styles.presLabel, presence?.checked_in && { color: "#c9e6d8" }]}>
+                  {presence?.checked_in ? "On site" : "Not checked in"}
+                </Text>
+                <Text style={[styles.presSite, presence?.checked_in && { color: "#fff" }]}>
+                  {presence?.checked_in ? presence.site_name ?? "a site" : "Open a job and check in at its site"}
+                </Text>
+                {presence?.checked_in && presence.since ? (
+                  <Text style={{ color: "#c9e6d8", fontSize: font.xs, marginTop: 2 }}>since {timeAgo(presence.since)}</Text>
+                ) : null}
+              </View>
+              {presence?.checked_in ? <Button title="Check out" small variant="secondary" loading={busy} onPress={leaveSite} /> : null}
+            </Card>
 
-          {/* Quick actions */}
-          <Text style={styles.quickTitle}>Quick Actions</Text>
-          <View style={styles.actions}>
-            {ACTIONS.map((a) => (
-              <Pressable key={a.label} style={styles.action} onPress={() => router.push(a.href as never)}>
-                <View style={[styles.actionIcon, { backgroundColor: a.tint + "1a" }]}>
-                  <Ionicons name={a.icon} size={28} color={a.tint} />
-                </View>
-                <Text style={styles.actionLabel}>{a.label}</Text>
-              </Pressable>
-            ))}
-          </View>
-
-          {/* My tickets */}
-          <SectionHeader
-            title="My Tickets"
-            action={<Pressable onPress={() => router.push("/(tabs)/tickets")}><Text style={styles.link}>View all</Text></Pressable>}
-          />
-          {tickets.length === 0 ? (
-            <View style={styles.emptyMini}>
-              <Ionicons name="checkmark-done-circle-outline" size={26} color={colors.success} />
-              <Text style={styles.emptyMiniText}>You&apos;re all caught up — no open tickets.</Text>
+            {/* Counts */}
+            <View style={styles.tiles}>
+              <Tile n={installs.length} label="Installations" icon="layers-outline" />
+              <Tile n={jobs.length} label="Maintenance" icon="construct-outline" />
+              <Tile n={dueToday} label="Due today" icon="alarm-outline" tint={dueToday ? colors.danger : colors.textMuted} />
             </View>
-          ) : (
-            tickets.slice(0, 5).map((t) => (
-              <TicketCard key={t.id} ticket={t} onPress={() => router.push(`/ticket/${t.id}`)} />
-            ))
-          )}
-        </ScrollView>
-      )}
-    </SafeAreaView>
+
+            {/* Jobs */}
+            <View style={styles.sectionHead}>
+              <Text style={styles.sectionTitle}>My jobs</Text>
+              <Pressable onPress={() => router.push("/(tabs)/jobs")}><Text style={styles.link}>All jobs</Text></Pressable>
+            </View>
+            {installs.length === 0 && jobs.length === 0 ? (
+              <Card><Text style={styles.empty}>Nothing assigned to you right now.</Text></Card>
+            ) : null}
+            {installs.slice(0, 4).map((j) => (
+              <Card key={j.id} style={styles.job} onPress={() => router.push(`/installation/${j.id}`)}>
+                <View style={styles.jobIcon}><Ionicons name="layers-outline" size={18} color={colors.primary} /></View>
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.jobTitle} numberOfLines={1}>{j.device_code} · {j.device_name}</Text>
+                  <Text style={styles.jobSub} numberOfLines={1}>Install at {j.site_name}{j.due_date ? ` · due ${j.due_date}` : ""}</Text>
+                </View>
+                <Pill label={`${j.progress ?? 0}%`} fg={colors.primary} bg={colors.primarySoft} />
+              </Card>
+            ))}
+            {jobs.slice(0, 4).map((j) => (
+              <Card key={j.id} style={styles.job} onPress={() => router.push(`/job/${j.id}`)}>
+                <View style={[styles.jobIcon, { backgroundColor: colors.warningSoft }]}><Ionicons name="construct-outline" size={18} color="#b45309" /></View>
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.jobTitle} numberOfLines={1}>{j.device_code ? `${j.device_code} · ` : ""}{j.title}</Text>
+                  <Text style={styles.jobSub} numberOfLines={1}>{j.maintenance_type === "corrective" ? "Fault" : "Round"} at {j.site_name ?? "site"}{j.next_due ? ` · due ${j.next_due}` : ""}</Text>
+                </View>
+                <Pill label={j.status_display} fg={j.status === "in_process" ? "#b45309" : colors.textMuted} bg={j.status === "in_process" ? colors.warningSoft : colors.secondary} />
+              </Card>
+            ))}
+            {awaiting ? <Text style={styles.hint}>{awaiting} job{awaiting === 1 ? "" : "s"} in progress.</Text> : null}
+          </ScrollView>
+        )}
+      </SafeAreaView>
+    </Wash>
+  );
+}
+
+function Tile({ n, label, icon, tint = colors.primary }: { n: number; label: string; icon: keyof typeof Ionicons.glyphMap; tint?: string }) {
+  return (
+    <View style={styles.tile}>
+      <Ionicons name={icon} size={18} color={tint} />
+      <Text style={[styles.tileN, { color: tint }]}>{n}</Text>
+      <Text style={styles.tileLabel}>{label}</Text>
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
-  safe: { flex: 1, backgroundColor: colors.bg },
   header: { flexDirection: "row", alignItems: "center", gap: spacing.sm, paddingHorizontal: spacing.lg, paddingVertical: spacing.md },
-  greeting: { fontSize: font.sm, color: colors.textMuted },
+  greet: { fontSize: font.sm, color: colors.textMuted },
   name: { fontSize: font.h2, fontWeight: "800", color: colors.text },
-  content: { padding: spacing.lg, paddingTop: spacing.xs, paddingBottom: spacing.xxxl },
-  statsRow: { flexDirection: "row", gap: spacing.md, marginBottom: spacing.xl },
-  quickTitle: { fontSize: font.h3, fontWeight: "800", color: colors.text, marginBottom: spacing.md },
-  actions: { flexDirection: "row", justifyContent: "space-between", marginBottom: spacing.lg },
-  action: { alignItems: "center", gap: 8, width: "23%" },
-  actionIcon: { width: 56, height: 56, borderRadius: radius.lg, alignItems: "center", justifyContent: "center" },
-  actionLabel: { fontSize: font.xs, color: colors.textMuted, fontWeight: "600", textAlign: "center" },
-  link: { fontSize: font.sm, color: colors.primary, fontWeight: "700" },
-  emptyMini: { flexDirection: "row", alignItems: "center", gap: spacing.sm, backgroundColor: colors.successSoft, borderRadius: radius.md, padding: spacing.lg },
-  emptyMiniText: { flex: 1, fontSize: font.sm, color: "#047857", fontWeight: "500" },
+  presence: { flexDirection: "row", alignItems: "center", gap: spacing.md, backgroundColor: "rgba(255,255,255,0.75)" },
+  presLabel: { fontSize: font.xs, fontWeight: "700", color: colors.textMuted, textTransform: "uppercase", letterSpacing: 0.5 },
+  presSite: { fontSize: font.body, fontWeight: "700", color: colors.text, marginTop: 2 },
+  tiles: { flexDirection: "row", gap: spacing.sm, marginTop: spacing.md },
+  tile: { flex: 1, backgroundColor: "rgba(255,255,255,0.7)", borderRadius: radius.md, padding: spacing.md, gap: 4, borderWidth: 1, borderColor: "rgba(255,255,255,0.8)" },
+  tileN: { fontSize: 22, fontWeight: "800" },
+  tileLabel: { fontSize: font.xs, color: colors.textMuted, fontWeight: "600" },
+  sectionHead: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginTop: spacing.xl, marginBottom: spacing.sm },
+  sectionTitle: { fontSize: font.h3, fontWeight: "800", color: colors.text },
+  link: { fontSize: font.sm, fontWeight: "700", color: colors.primary },
+  job: { flexDirection: "row", alignItems: "center", gap: spacing.md, marginBottom: spacing.sm, padding: spacing.md },
+  jobIcon: { width: 36, height: 36, borderRadius: 10, backgroundColor: colors.primarySoft, alignItems: "center", justifyContent: "center" },
+  jobTitle: { fontSize: font.body, fontWeight: "700", color: colors.text },
+  jobSub: { fontSize: font.xs, color: colors.textMuted, marginTop: 2 },
+  empty: { fontSize: font.sm, color: colors.textMuted },
+  hint: { fontSize: font.xs, color: colors.textMuted, marginTop: spacing.sm },
 });

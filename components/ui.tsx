@@ -1,20 +1,14 @@
 import { Ionicons } from "@expo/vector-icons";
 import { ReactNode } from "react";
-import {
-  ActivityIndicator,
-  Pressable,
-  StyleSheet,
-  Text,
-  View,
-  ViewStyle,
-} from "react-native";
+import { ActivityIndicator, Pressable, StyleProp, StyleSheet, View, ViewStyle } from "react-native";
+import { Text } from "@/components/text";
 
 import { PRIORITY_TONES, STATUS_TONES, colors, font, radius, shadow, spacing, toneFor } from "@/constants/theme";
 
 type IconName = keyof typeof Ionicons.glyphMap;
 
 /* ---------- Card ---------- */
-export function Card({ children, style, onPress }: { children: ReactNode; style?: ViewStyle; onPress?: () => void }) {
+export function Card({ children, style, onPress }: { children: ReactNode; style?: StyleProp<ViewStyle>; onPress?: () => void }) {
   const content = <View style={[styles.card, style]}>{children}</View>;
   if (onPress) {
     return (
@@ -54,7 +48,7 @@ export function Button({
   title, onPress, variant = "primary", icon, loading, disabled, small, style,
 }: {
   title: string; onPress?: () => void; variant?: BtnVariant; icon?: IconName;
-  loading?: boolean; disabled?: boolean; small?: boolean; style?: ViewStyle;
+  loading?: boolean; disabled?: boolean; small?: boolean; style?: StyleProp<ViewStyle>;
 }) {
   const v = BTN[variant];
   return (

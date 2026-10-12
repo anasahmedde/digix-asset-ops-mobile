@@ -1,6 +1,7 @@
 import { router, useFocusEffect } from "expo-router";
 import { useCallback, useState } from "react";
-import { FlatList, Pressable, RefreshControl, StyleSheet, Text, View } from "react-native";
+import { FlatList, Pressable, RefreshControl, StyleSheet, View } from "react-native";
+import { Text } from "@/components/text";
 import { SafeAreaView } from "react-native-safe-area-context";
 
 import { Avatar, EmptyState, Fab, Loading } from "@/components/ui";

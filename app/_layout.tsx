@@ -1,4 +1,7 @@
 import { Ionicons } from "@expo/vector-icons";
+import {
+  Urbanist_400Regular, Urbanist_500Medium, Urbanist_600SemiBold, Urbanist_700Bold, Urbanist_800ExtraBold,
+} from "@expo-google-fonts/urbanist";
 import { useFonts } from "expo-font";
 import { Stack } from "expo-router";
 import { StatusBar } from "expo-status-bar";
@@ -9,16 +12,19 @@ const headerStyle = {
   headerShown: true,
   headerStyle: { backgroundColor: colors.card },
   headerTintColor: colors.text,
-  headerTitleStyle: { fontWeight: "700" as const, fontSize: 17 },
+  headerTitleStyle: { fontFamily: "Urbanist_700Bold", fontSize: 17 },
+  headerBackTitleStyle: { fontFamily: "Urbanist_500Medium" },
   headerShadowVisible: false,
   contentStyle: { backgroundColor: colors.bg },
 };
 
 export default function RootLayout() {
-  // Preload the icon font so Ionicons glyphs render in the release APK.
-  // IMPORTANT: proceed even if the font errors — otherwise the whole app
-  // would hang on a blank screen. Icons still lazy-load via the library.
-  const [fontsLoaded, fontError] = useFonts({ ...Ionicons.font });
+  // The desktop's typeface and the icon font. Proceed even if a font errors,
+  // or the app would hang on a blank screen; text then falls back to system.
+  const [fontsLoaded, fontError] = useFonts({
+    ...Ionicons.font,
+    Urbanist_400Regular, Urbanist_500Medium, Urbanist_600SemiBold, Urbanist_700Bold, Urbanist_800ExtraBold,
+  });
   if (!fontsLoaded && !fontError) return null;
 
   return (
@@ -28,34 +34,14 @@ export default function RootLayout() {
         <Stack.Screen name="index" />
         <Stack.Screen name="(auth)" />
         <Stack.Screen name="(tabs)" />
-        <Stack.Screen name="ticket/[id]" options={{ ...headerStyle, title: "Ticket" }} />
-        <Stack.Screen name="chat/[id]" options={{ ...headerStyle, title: "Chat" }} />
-        <Stack.Screen name="asset/[code]" options={{ ...headerStyle, title: "Asset" }} />
-        <Stack.Screen name="notifications" options={{ ...headerStyle, title: "Notifications" }} />
-        <Stack.Screen name="new-chat" options={{ ...headerStyle, title: "New Message", presentation: "modal" }} />
-        <Stack.Screen name="attendance" options={{ ...headerStyle, title: "Attendance" }} />
-        <Stack.Screen name="visits" options={{ ...headerStyle, title: "Site Visits" }} />
-        <Stack.Screen name="site/[id]" options={{ ...headerStyle, title: "Site" }} />
         <Stack.Screen name="installation/[id]" options={{ ...headerStyle, title: "Installation" }} />
-        <Stack.Screen name="installations" options={{ ...headerStyle, title: "Installations" }} />
-        <Stack.Screen name="web-view" options={{ ...headerStyle, title: "DIGIX" }} />
-        <Stack.Screen name="admin/assets" options={{ ...headerStyle, title: "Assets" }} />
-        <Stack.Screen name="admin/clients" options={{ ...headerStyle, title: "Clients" }} />
-        <Stack.Screen name="admin/work-orders" options={{ ...headerStyle, title: "Work Orders" }} />
-        <Stack.Screen name="admin/work-order/[id]" options={{ ...headerStyle, title: "Work Order" }} />
-        <Stack.Screen name="admin/inventory" options={{ ...headerStyle, title: "Inventory" }} />
-        <Stack.Screen name="admin/procurement" options={{ ...headerStyle, title: "Procurement" }} />
-        <Stack.Screen name="admin/purchase-order/[id]" options={{ ...headerStyle, title: "Purchase Order" }} />
-        <Stack.Screen name="admin/suppliers" options={{ ...headerStyle, title: "Vendors" }} />
-        <Stack.Screen name="admin/maintenance" options={{ ...headerStyle, title: "Maintenance" }} />
-        <Stack.Screen name="admin/teams" options={{ ...headerStyle, title: "Teams" }} />
-        <Stack.Screen name="admin/projects" options={{ ...headerStyle, title: "Projects" }} />
-        <Stack.Screen name="admin/project/[id]" options={{ ...headerStyle, title: "Project" }} />
-        <Stack.Screen name="admin/warranties" options={{ ...headerStyle, title: "Warranties" }} />
-        <Stack.Screen name="admin/reports" options={{ ...headerStyle, title: "Reports" }} />
-        <Stack.Screen name="admin/alerts" options={{ ...headerStyle, title: "Alerts" }} />
-        <Stack.Screen name="admin/documents" options={{ ...headerStyle, title: "Documents" }} />
-        <Stack.Screen name="admin/settings" options={{ ...headerStyle, title: "Settings" }} />
+        <Stack.Screen name="job/[id]" options={{ ...headerStyle, title: "Maintenance job" }} />
+        <Stack.Screen name="ticket/[id]" options={{ ...headerStyle, title: "Ticket" }} />
+        <Stack.Screen name="asset/[code]" options={{ ...headerStyle, title: "Asset" }} />
+        <Stack.Screen name="site/[id]" options={{ ...headerStyle, title: "Site" }} />
+        <Stack.Screen name="notifications" options={{ ...headerStyle, title: "Notifications" }} />
+        <Stack.Screen name="chat/[id]" options={{ ...headerStyle, title: "Chat" }} />
+        <Stack.Screen name="new-chat" options={{ ...headerStyle, title: "New message", presentation: "modal" }} />
       </Stack>
     </>
   );

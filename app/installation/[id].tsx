@@ -1,94 +1,68 @@
 import { Ionicons } from "@expo/vector-icons";
-import * as ImagePicker from "expo-image-picker";
 import { useLocalSearchParams } from "expo-router";
 import { useCallback, useEffect, useState } from "react";
-import {
-  Alert, Image, Modal, RefreshControl, ScrollView, StyleSheet, Text, TextInput, View,
-} from "react-native";
+import { Alert, Image, Modal, Pressable, RefreshControl, ScrollView, StyleSheet, TextInput, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 
-import { Button, Card, Chip, Loading, Pill, Row } from "@/components/ui";
+import { FlowStep, Note, PresenceCard, Section, Wash } from "@/components/field";
+import { Text } from "@/components/text";
+import { Button, Card, Pill, Row } from "@/components/ui";
 import { colors, font, radius, spacing } from "@/constants/theme";
 import api from "@/lib/api";
+import { Presence, checkIn, checkOut, getPresence, onSite } from "@/lib/attendance";
 import { mediaUrl } from "@/lib/format";
+import { asUpload, pickFromLibrary, takePhoto } from "@/lib/photos";
 import { toast } from "@/lib/toast";
 import { getCurrentUser } from "@/lib/user";
 
+/**
+ * One asset going into one site, worked end to end from the phone: check in,
+ * define and work the steps, mark it live with a photo, upload the signed
+ * handover, check out. Every button is the assigned installer's, and only
+ * while they are clocked in at this site.
+ */
 interface Step {
-  id: string;
-  step_type: string;
-  step_type_display: string;
-  step_number: number;
-  status: string;
-  status_display: string;
-  started_at: string | null;
-  completed_at: string | null;
+  id: string; step_type: string; step_type_display: string; custom_label: string | null;
+  step_number: number; status: string; status_display: string;
+  started_at: string | null; completed_at: string | null;
 }
 interface Photo { id: string; photo_type: string; image: string; caption: string }
-interface Handover {
-  id: string;
-  handover_date: string;
-  accepted_by_name: string;
-  acceptance_notes: string;
-  signature: string | null;
-  client_name: string;
-  performed_by_name: string | null;
-}
+interface Handover { id: string; handover_date: string; accepted_by_name: string; acceptance_notes: string; client_name: string; signed_document?: string | null }
 interface Installation {
-  id: string;
-  device_code: string;
-  device_name: string;
-  site_name: string;
-  position_label: string;
-  progress: number;
-  installed_at: string;
-  due_date: string | null;
-  completed_at: string | null;
-  installed_by: string | null;
-  escalated?: boolean;
-  escalation_state?: Record<string, string>;
-  handover: Handover | null;
-  steps: Step[];
-  photos: Photo[];
+  id: string; device: string; device_code: string; device_name: string; device_status?: string;
+  site: string; site_name: string; position_label: string; progress: number;
+  due_date: string | null; completed_at: string | null; installed_by: string | null; installed_by_name?: string | null;
+  client_names?: string[]; handover: Handover | null; steps: Step[]; photos: Photo[];
 }
 
-const STATUS_TONE: Record<string, { fg: string; bg: string; icon: keyof typeof Ionicons.glyphMap }> = {
-  not_started: { fg: colors.textMuted, bg: colors.border, icon: "ellipse-outline" },
-  in_progress: { fg: "#b45309", bg: "#fef3c7", icon: "time" },
-  on_hold: { fg: "#9333ea", bg: "#f3e8ff", icon: "pause-circle" },
-  completed: { fg: "#047857", bg: colors.successSoft, icon: "checkmark-circle" },
-  skipped: { fg: colors.textLight, bg: colors.border, icon: "remove-circle-outline" },
-};
-
-const PHOTO_TYPES = [
-  { value: "pre_install", label: "Pre" },
-  { value: "post_install", label: "Post" },
-  { value: "verification", label: "Verify" },
-  { value: "handover", label: "Handover" },
+const STEP_TYPES = [
+  ["survey", "Survey"], ["wiring", "Wiring"], ["structure", "Metal structure"], ["programming", "Programming"],
+  ["testing", "Testing and commissioning"], ["other", "Other"],
 ] as const;
-
+const STEP_TONE: Record<string, { fg: string; bg: string }> = {
+  not_started: { fg: colors.textMuted, bg: colors.secondary },
+  in_progress: { fg: "#b45309", bg: colors.warningSoft },
+  on_hold: { fg: "#6d28d9", bg: colors.violetSoft },
+  completed: { fg: "#047857", bg: colors.successSoft },
+  skipped: { fg: colors.textLight, bg: colors.secondary },
+};
 
 export default function InstallationScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const [inst, setInst] = useState<Installation | null>(null);
+  const [me, setMe] = useState<{ id: string } | null>(null);
+  const [presence, setPresence] = useState<Presence | null>(null);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [busy, setBusy] = useState<string | null>(null);
-  const [uploading, setUploading] = useState(false);
-  const [photoType, setPhotoType] = useState<string>("post_install");
-  const [me, setMe] = useState<{ id: string; role: string; capabilities: string[] } | null>(null);
-
-  // Handover form state
-  const [handoverOpen, setHandoverOpen] = useState(false);
-  const [acceptedBy, setAcceptedBy] = useState("");
-  const [handoverNotes, setHandoverNotes] = useState("");
-  const [signature, setSignature] = useState<string | null>(null);
-  const [handoverSaving, setHandoverSaving] = useState(false);
+  const [stepForm, setStepForm] = useState<{ type: string; label: string } | null>(null);
+  const [handoverForm, setHandoverForm] = useState<{ name: string; notes: string; doc: ReturnType<typeof asUpload> | null; docName: string } | null>(null);
 
   const load = useCallback(async () => {
     try {
-      const { data } = await api.get(`/sites/installations/${id}/`);
-      setInst(data);
+      const [i, p] = await Promise.allSettled([api.get(`/sites/installations/${id}/`), getPresence()]);
+      if (i.status === "fulfilled") setInst(i.value.data);
+      if (p.status === "fulfilled") setPresence(p.value);
     } finally {
       setLoading(false);
       setRefreshing(false);
@@ -97,337 +71,270 @@ export default function InstallationScreen() {
 
   useEffect(() => {
     load();
-    getCurrentUser().then((u) => setMe({ id: u.id, role: u.role, capabilities: u.capabilities ?? [] })).catch(() => {});
+    getCurrentUser().then((u) => setMe({ id: u.id })).catch(() => {});
   }, [load]);
 
-  async function setStepStatus(step: Step, status: string) {
+  const fail = (err: unknown, fallback: string) => {
+    const d = (err as { response?: { data?: Record<string, unknown> } }).response?.data;
+    const first = d && (typeof d.detail === "string" ? d.detail : Object.values(d).flat().find((v) => typeof v === "string"));
+    toast.error(typeof first === "string" ? first : fallback);
+  };
+
+  async function run(key: string, fn: () => Promise<void>, fallback: string) {
     if (busy) return;
-    setBusy(step.id);
+    setBusy(key);
     try {
-      await api.patch(`/sites/installation-steps/${step.id}/`, { status });
+      await fn();
       await load();
-    } catch {
-      toast.error("Could not update step");
+    } catch (err) {
+      fail(err, fallback);
     } finally {
       setBusy(null);
     }
   }
 
-  function stepActions(step: Step) {
-    // Forward-only by default; reopening or holding is an explicit choice.
-    const options: { text: string; onPress: () => void; style?: "cancel" | "destructive" }[] = [];
-    if (step.status === "not_started") {
-      options.push({ text: "Start", onPress: () => setStepStatus(step, "in_progress") });
-    }
-    if (step.status === "in_progress" || step.status === "on_hold") {
-      options.push({ text: "Mark completed", onPress: () => setStepStatus(step, "completed") });
-    }
-    if (step.status === "in_progress") {
-      options.push({ text: "Put on hold (client)", onPress: () => setStepStatus(step, "on_hold") });
-    }
-    if (step.status === "on_hold") {
-      options.push({ text: "Resume", onPress: () => setStepStatus(step, "in_progress") });
-    }
-    if (step.status === "completed") {
-      options.push({
-        text: "Reopen step",
-        style: "destructive",
-        onPress: () =>
-          Alert.alert("Reopen step?", "This clears the completion and reopens the installation.", [
-            { text: "Cancel", style: "cancel" },
-            { text: "Reopen", style: "destructive", onPress: () => setStepStatus(step, "in_progress") },
-          ]),
-      });
-    }
-    if (!options.length) return;
-    Alert.alert(step.step_type_display, "Update this step", [
-      ...options,
-      { text: "Cancel", style: "cancel", onPress: () => {} },
-    ]);
+  if (loading || !inst) {
+    return <Wash><SafeAreaView style={{ flex: 1 }}><Text style={styles.muted}>{loading ? "Loading…" : "Installation not found."}</Text></SafeAreaView></Wash>;
   }
 
-  async function pickImage(): Promise<ImagePicker.ImagePickerAsset | null> {
-    const perm = await ImagePicker.requestCameraPermissionsAsync();
-    const result = perm.granted
-      ? await ImagePicker.launchCameraAsync({ quality: 0.6 })
-      : await ImagePicker.launchImageLibraryAsync({ quality: 0.6 });
-    if (result.canceled || !result.assets?.length) return null;
-    return result.assets[0];
-  }
+  const mine = !!me && me.id === inst.installed_by;
+  const here = onSite(presence, inst.site);
+  const canAct = mine && here && !inst.completed_at;
+  const workSteps = inst.steps.filter((s) => s.step_type !== "handover");
+  const allDone = workSteps.length > 0 && workSteps.every((s) => s.status === "completed" || s.status === "skipped");
+  const active = inst.device_status === "active" || inst.photos.some((p) => p.photo_type === "post_install") && allDone && !!inst.handover;
+  const isLive = inst.device_status ? inst.device_status === "active" || inst.device_status === "client_property" : active;
+  const stage: 1 | 2 | 3 | 4 | 5 = !here && !inst.completed_at ? 1 : !allDone ? 2 : !isLive ? 3 : !inst.handover ? 4 : 5;
 
-  async function addPhoto() {
-    try {
-      const asset = await pickImage();
-      if (!asset) return;
-      setUploading(true);
+  // -- the actions
+  const setStep = (s: Step, status: string) => run(s.id, async () => { await api.patch(`/sites/installation-steps/${s.id}/`, { status }); }, "Could not update the step");
+  const removeStep = (s: Step) => Alert.alert("Remove step?", s.custom_label || s.step_type_display, [
+    { text: "Keep", style: "cancel" },
+    { text: "Remove", style: "destructive", onPress: () => run(s.id, async () => { await api.delete(`/sites/installation-steps/${s.id}/`); }, "Could not remove the step") },
+  ]);
+  const addStep = () => {
+    if (!stepForm) return;
+    const body = { installation: inst.id, step_type: stepForm.type, custom_label: stepForm.type === "other" ? stepForm.label.trim() : stepForm.label.trim() || null, step_number: workSteps.length + 1 };
+    if (stepForm.type === "other" && !body.custom_label) { toast.error("Name the step"); return; }
+    setStepForm(null);
+    run("add", async () => { await api.post("/sites/installation-steps/", body); }, "Could not add the step");
+  };
+  const addPhoto = (kind: "pre_install" | "post_install") => run(kind, async () => {
+    const a = await takePhoto();
+    if (!a) return;
+    const fd = new FormData();
+    fd.append("installation", inst.id);
+    fd.append("photo_type", kind);
+    fd.append("image", asUpload(a, "install.jpg"));
+    await api.post("/sites/installation-photos/", fd, { headers: { "Content-Type": "multipart/form-data" } });
+  }, "Photo upload failed");
+  const activate = () => run("activate", async () => {
+    const a = await takePhoto();
+    if (!a) return;
+    const fd = new FormData();
+    fd.append("photos", asUpload(a, "live.jpg"));
+    await api.post(`/sites/installations/${inst.id}/activate/`, fd, { headers: { "Content-Type": "multipart/form-data" } });
+    toast.success("Asset is live");
+  }, "Could not mark the asset active");
+  const submitHandover = () => {
+    if (!handoverForm) return;
+    if (!handoverForm.name.trim()) { toast.error("Who accepted the handover?"); return; }
+    if (!handoverForm.doc) { toast.error("Attach the signed handover document"); return; }
+    const f = handoverForm;
+    setHandoverForm(null);
+    run("handover", async () => {
       const fd = new FormData();
-      fd.append("installation", String(id));
-      fd.append("photo_type", photoType);
-      fd.append("image", { uri: asset.uri, name: "install.jpg", type: "image/jpeg" } as never);
-      await api.post("/sites/installation-photos/", fd, { headers: { "Content-Type": "multipart/form-data" } });
-      toast.success("Photo added");
-      await load();
-    } catch {
-      toast.error("Photo upload failed");
-    } finally {
-      setUploading(false);
-    }
-  }
-
-  async function pickSignature() {
-    const asset = await pickImage();
-    if (asset) setSignature(asset.uri);
-  }
-
-  async function submitHandover() {
-    if (handoverSaving) return;
-    if (!acceptedBy.trim()) {
-      toast.error("Enter who accepted the handover");
-      return;
-    }
-    setHandoverSaving(true);
-    try {
-      const fd = new FormData();
-      fd.append("accepted_by_name", acceptedBy.trim());
-      if (handoverNotes.trim()) fd.append("acceptance_notes", handoverNotes.trim());
-      if (signature) {
-        fd.append("signature", { uri: signature, name: "signature.jpg", type: "image/jpeg" } as never);
-      }
-      const { data } = await api.post(`/sites/installations/${id}/handover/`, fd, {
-        headers: { "Content-Type": "multipart/form-data" },
-      });
-      setInst(data);
-      setHandoverOpen(false);
-      toast.success("Handover recorded — asset is now Active");
-    } catch (err: unknown) {
-      const resp = (err as { response?: { data?: Record<string, unknown> } }).response;
-      const detail =
-        (typeof resp?.data?.detail === "string" && resp.data.detail) ||
-        (Array.isArray(resp?.data?.client) && String(resp.data.client[0])) ||
-        (typeof resp?.data?.client === "string" && resp.data.client) ||
-        "Handover failed";
-      toast.error(detail);
-    } finally {
-      setHandoverSaving(false);
-    }
-  }
-
-  if (loading) return <Loading />;
-  if (!inst) return <SafeAreaView style={styles.safe}><Text style={styles.err}>Installation not found.</Text></SafeAreaView>;
-
-  const done = inst.steps.filter((s) => s.status === "completed").length;
-  const today = new Date().toISOString().slice(0, 10);
-  const overdue = !inst.completed_at && !!inst.due_date && inst.due_date < today;
-  const stage2 = Object.keys(inst.escalation_state ?? {}).some((k) => k.endsWith(":2"));
-  const nonHandoverPending = inst.steps.some(
-    (s) => s.step_type !== "handover" && s.status !== "completed" && s.status !== "skipped"
-  );
-  const canHandover =
-    !inst.handover &&
-    !nonHandoverPending &&
-    !!me &&
-    // As the server has it: whoever may close an installation, or its installer.
-    (me.capabilities.includes("close_installation") || me.id === inst.installed_by);
+      fd.append("accepted_by_name", f.name.trim());
+      if (f.notes.trim()) fd.append("acceptance_notes", f.notes.trim());
+      fd.append("signed_document", f.doc as Blob);
+      await api.post(`/sites/installations/${inst.id}/handover/`, fd, { headers: { "Content-Type": "multipart/form-data" } });
+      toast.success("Handover recorded");
+    }, "Handover failed");
+  };
+  const clockIn = () => run("presence", async () => { setPresence(await checkIn(inst.site)); }, "Could not check in");
+  const clockOut = () => run("presence", async () => { setPresence(await checkOut(inst.site)); toast.success("Checked out"); }, "Could not check out");
 
   return (
-    <SafeAreaView style={styles.safe} edges={["bottom"]}>
-      <ScrollView
-        contentContainerStyle={{ padding: spacing.lg, paddingBottom: spacing.xxxl }}
-        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => { setRefreshing(true); load(); }} />}
-      >
-        {/* Header */}
-        <View style={styles.headRow}>
-          <Text style={styles.code}>{inst.device_code}</Text>
-          {inst.handover ? <Pill label="Handed over" fg="#047857" bg={colors.successSoft} /> : null}
-        </View>
-        <Text style={styles.sub}>{inst.device_name}</Text>
-        <View style={styles.siteLine}>
-          <Ionicons name="location-outline" size={14} color={colors.textLight} />
-          <Text style={styles.site}>{inst.site_name}{inst.position_label ? ` · ${inst.position_label}` : ""}</Text>
-          {inst.due_date ? (
-            <Text style={[styles.dueText, overdue && { color: "#b91c1c", fontWeight: "800" }]}>
-              · Due {inst.due_date}
-            </Text>
-          ) : null}
-        </View>
-
-        {inst.escalated && !inst.completed_at ? (
-          <View style={styles.escBanner}>
-            <Ionicons name="warning" size={16} color="#b91c1c" />
-            <Text style={styles.escText}>
-              {stage2 ? "Escalated to Group Head (L2)" : "Escalated — past its due date"}
-            </Text>
+    <Wash>
+      <SafeAreaView style={{ flex: 1 }} edges={["bottom"]}>
+        <ScrollView
+          contentContainerStyle={{ padding: spacing.lg, paddingBottom: spacing.xxxl }}
+          refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => { setRefreshing(true); load(); }} />}
+        >
+          <View style={styles.headRow}>
+            <View style={{ flex: 1 }}>
+              <Text style={styles.code}>{inst.device_code}</Text>
+              <Text style={styles.sub}>{inst.device_name}</Text>
+            </View>
+            {inst.completed_at ? <Pill label="Handed over" fg="#047857" bg={colors.successSoft} /> : <Pill label={`${inst.progress}%`} fg={colors.primary} bg={colors.primarySoft} />}
           </View>
-        ) : null}
-
-        {/* Progress */}
-        <Card style={{ marginTop: spacing.lg, gap: 8 }}>
-          <View style={styles.progHead}>
-            <Text style={styles.progLabel}>Installation progress</Text>
-            <Text style={styles.progPct}>{inst.progress}%</Text>
-          </View>
-          <View style={styles.track}><View style={[styles.fill, { width: `${inst.progress}%` }]} /></View>
-          <Text style={styles.progSub}>{done} of {inst.steps.length} steps completed</Text>
-        </Card>
-
-        {/* Handover record / action */}
-        {inst.handover ? (
-          <Card style={{ marginTop: spacing.lg, gap: 6 }}>
-            <Text style={styles.progLabel}>Handover</Text>
-            <Row label="Date" value={inst.handover.handover_date} />
-            <Row label="Accepted by" value={inst.handover.accepted_by_name} />
-            <Row label="Client" value={inst.handover.client_name} />
-            {inst.handover.performed_by_name ? <Row label="Performed by" value={inst.handover.performed_by_name} /> : null}
-            {inst.handover.acceptance_notes ? <Text style={styles.notes}>{inst.handover.acceptance_notes}</Text> : null}
-            {inst.handover.signature ? (
-              <Image source={{ uri: mediaUrl(inst.handover.signature) }} style={styles.signature} resizeMode="contain" />
-            ) : null}
+          <Card style={{ marginTop: spacing.md, gap: 0 }}>
+            <Row label="Site" value={inst.site_name + (inst.position_label ? ` · ${inst.position_label}` : "")} />
+            <Row label="Client" value={inst.client_names?.join(", ") || "—"} />
+            <Row label="Installer" value={inst.installed_by_name || "Not assigned"} />
+            <Row label="Due" value={inst.due_date || "—"} />
           </Card>
-        ) : canHandover ? (
-          <Button
-            title="Handover to client"
-            icon="ribbon-outline"
-            style={{ marginTop: spacing.lg }}
-            onPress={() => setHandoverOpen(true)}
-          />
-        ) : null}
 
-        {/* Steps */}
-        <Text style={styles.section}>Steps</Text>
-        <Text style={styles.hint}>Tap a step to update it. Completed steps need a confirmed reopen.</Text>
-        {inst.steps.map((s) => {
-          const tone = STATUS_TONE[s.status] ?? STATUS_TONE.not_started;
-          return (
-            <Card key={s.id} style={{ marginBottom: spacing.sm }} onPress={() => stepActions(s)}>
-              <View style={styles.stepRow}>
-                <View style={[styles.stepNum, { backgroundColor: tone.bg }]}>
-                  <Text style={[styles.stepNumText, { color: tone.fg }]}>{s.step_number}</Text>
-                </View>
-                <View style={{ flex: 1 }}>
-                  <Text style={styles.stepName}>{s.step_type_display}</Text>
-                  <View style={styles.statusRow}>
-                    <Ionicons name={tone.icon} size={14} color={tone.fg} />
-                    <Text style={[styles.statusText, { color: tone.fg }]}>{busy === s.id ? "Updating…" : s.status_display}</Text>
+          <PresenceCard presence={presence} site={inst.site} siteName={inst.site_name} mine={mine} busy={busy === "presence"} onCheckIn={clockIn} onCheckOut={clockOut} />
+
+          {/* 1 Check in */}
+          <Section title="The job, step by step">
+            <FlowStep n={1} title="Check in at the site" state={here || inst.completed_at ? "done" : "now"} />
+
+            {/* 2 Steps */}
+            <FlowStep n={2} title="Installation steps" state={allDone ? "done" : stage === 2 ? "now" : "later"}>
+              {workSteps.map((s) => {
+                const tone = STEP_TONE[s.status] ?? STEP_TONE.not_started;
+                return (
+                  <View key={s.id} style={styles.step}>
+                    <View style={styles.stepTop}>
+                      <Text style={styles.stepName}>{s.step_number}. {s.custom_label || s.step_type_display}</Text>
+                      <Pill label={busy === s.id ? "…" : s.status_display} fg={tone.fg} bg={tone.bg} />
+                    </View>
+                    {canAct ? (
+                      <View style={styles.stepBtns}>
+                        {s.status === "not_started" && <Button title="Start" small icon="play" onPress={() => setStep(s, "in_progress")} />}
+                        {s.status === "in_progress" && <Button title="Complete" small variant="success" icon="checkmark" onPress={() => setStep(s, "completed")} />}
+                        {s.status === "in_progress" && <Button title="Hold" small variant="secondary" icon="pause" onPress={() => setStep(s, "on_hold")} />}
+                        {s.status === "on_hold" && <Button title="Resume" small icon="play" onPress={() => setStep(s, "in_progress")} />}
+                        {s.status === "not_started" && <Button title="Skip" small variant="ghost" onPress={() => setStep(s, "skipped")} />}
+                        {s.status === "not_started" && <Pressable onPress={() => removeStep(s)} hitSlop={8}><Ionicons name="trash-outline" size={18} color={colors.textLight} /></Pressable>}
+                      </View>
+                    ) : null}
                   </View>
+                );
+              })}
+              {canAct && !allDone ? <Button title="Add a step" small variant="secondary" icon="add" onPress={() => setStepForm({ type: "other", label: "" })} /> : null}
+              {!canAct && mine && !here && !inst.completed_at ? <Note tone="warn">Check in at {inst.site_name} to work the steps.</Note> : null}
+            </FlowStep>
+
+            {/* 3 Mark active */}
+            <FlowStep n={3} title="Mark the asset active" state={isLive ? "done" : stage === 3 ? "now" : "later"}>
+              {stage === 3 && canAct ? (
+                <>
+                  <Text style={styles.hint}>Take a photo of the asset running. That photo is the record that it is live.</Text>
+                  <Button title="Photo and mark active" icon="camera" loading={busy === "activate"} onPress={activate} />
+                </>
+              ) : null}
+            </FlowStep>
+
+            {/* 4 Handover */}
+            <FlowStep n={4} title="Upload the signed handover" state={inst.handover ? "done" : stage === 4 ? "now" : "later"}>
+              {inst.handover ? (
+                <View style={{ gap: 2 }}>
+                  <Text style={styles.hint}>Accepted by {inst.handover.accepted_by_name} on {inst.handover.handover_date}</Text>
+                  {inst.handover.acceptance_notes ? <Text style={styles.hint}>{inst.handover.acceptance_notes}</Text> : null}
                 </View>
-                <Ionicons name="chevron-forward" size={18} color={colors.textLight} />
+              ) : stage === 4 && canAct ? (
+                <>
+                  <Text style={styles.hint}>Have the client sign the handover sheet, then photograph or pick the signed copy.</Text>
+                  <Button title="Record handover" icon="document-text-outline" onPress={() => setHandoverForm({ name: "", notes: "", doc: null, docName: "" })} />
+                </>
+              ) : null}
+            </FlowStep>
+
+            {/* 5 Check out */}
+            <FlowStep n={5} title="Check out" state={stage === 5 && !here ? "done" : stage === 5 ? "now" : "later"}>
+              {stage === 5 && here ? <Button title="Check out of the site" icon="log-out-outline" variant="secondary" loading={busy === "presence"} onPress={clockOut} /> : null}
+            </FlowStep>
+          </Section>
+
+          {/* Photos */}
+          <Section
+            title="Photos"
+            hint="Before you start and after you finish."
+            action={canAct ? (
+              <View style={{ flexDirection: "row", gap: 6 }}>
+                <Button title="Before" small variant="secondary" icon="camera-outline" loading={busy === "pre_install"} onPress={() => addPhoto("pre_install")} />
+                <Button title="After" small variant="secondary" icon="camera-outline" loading={busy === "post_install"} onPress={() => addPhoto("post_install")} />
               </View>
-            </Card>
-          );
-        })}
+            ) : undefined}
+          >
+            {inst.photos.length === 0 ? <Text style={styles.muted}>No photos yet.</Text> : (
+              <View style={styles.photoGrid}>
+                {inst.photos.map((p) => (
+                  <View key={p.id}>
+                    <Image source={{ uri: mediaUrl(p.image) }} style={styles.photo} />
+                    <Text style={styles.photoTag}>{p.photo_type.replace("_install", "").replace("_", " ")}</Text>
+                  </View>
+                ))}
+              </View>
+            )}
+          </Section>
+        </ScrollView>
 
-        {/* Photos */}
-        <View style={styles.photoHead}>
-          <Text style={styles.section}>Photos</Text>
-          <Button title={uploading ? "Uploading…" : "Add photo"} icon="camera" small loading={uploading} onPress={addPhoto} />
-        </View>
-        <View style={styles.typeRow}>
-          {PHOTO_TYPES.map((t) => (
-            <Chip key={t.value} label={t.label} active={photoType === t.value} onPress={() => setPhotoType(t.value)} />
-          ))}
-        </View>
-        {inst.photos.length === 0 ? (
-          <Card><Text style={styles.empty}>No photos yet. Capture the install for the record.</Text></Card>
-        ) : (
-          <View style={styles.photoGrid}>
-            {inst.photos.map((p) => (
-              <Image key={p.id} source={{ uri: mediaUrl(p.image) }} style={styles.photo} />
-            ))}
-          </View>
-        )}
-      </ScrollView>
-
-      {/* Handover form */}
-      <Modal visible={handoverOpen} animationType="slide" transparent onRequestClose={() => setHandoverOpen(false)}>
-        <View style={styles.modalWrap}>
-          <View style={styles.modalCard}>
-            <Text style={styles.modalTitle}>Handover to client</Text>
-            <Text style={styles.modalSub}>
-              Records acceptance, assigns the client and site, and sets the asset to Active.
-            </Text>
-            <TextInput
-              style={styles.input}
-              placeholder="Accepted by (name) *"
-              placeholderTextColor={colors.textLight}
-              value={acceptedBy}
-              onChangeText={setAcceptedBy}
-            />
-            <TextInput
-              style={[styles.input, { height: 80, textAlignVertical: "top" }]}
-              placeholder="Acceptance notes"
-              placeholderTextColor={colors.textLight}
-              value={handoverNotes}
-              onChangeText={setHandoverNotes}
-              multiline
-            />
-            <Button
-              title={signature ? "Signature attached ✓" : "Attach signature photo"}
-              icon="create-outline"
-              small
-              onPress={pickSignature}
-            />
-            <View style={styles.modalActions}>
-              <Button title="Cancel" small onPress={() => setHandoverOpen(false)} variant="secondary" />
-              <Button
-                title={handoverSaving ? "Recording…" : "Record handover"}
-                small
-                loading={handoverSaving}
-                onPress={submitHandover}
+        {/* Add step */}
+        <Modal visible={!!stepForm} transparent animationType="slide" onRequestClose={() => setStepForm(null)}>
+          <View style={styles.modalWrap}>
+            <View style={styles.modalCard}>
+              <Text style={styles.modalTitle}>Add a step</Text>
+              <View style={styles.typeWrap}>
+                {STEP_TYPES.map(([v, l]) => (
+                  <Pressable key={v} onPress={() => setStepForm((f) => f && { ...f, type: v })} style={[styles.typeChip, stepForm?.type === v && styles.typeChipOn]}>
+                    <Text style={[styles.typeText, stepForm?.type === v && { color: "#fff" }]}>{l}</Text>
+                  </Pressable>
+                ))}
+              </View>
+              <TextInput
+                style={styles.input}
+                placeholder={stepForm?.type === "other" ? "Name the step *" : "Label (optional)"}
+                placeholderTextColor={colors.textLight}
+                value={stepForm?.label ?? ""}
+                onChangeText={(t) => setStepForm((f) => f && { ...f, label: t })}
               />
+              <View style={styles.modalActions}>
+                <Button title="Cancel" small variant="secondary" onPress={() => setStepForm(null)} />
+                <Button title="Add step" small onPress={addStep} />
+              </View>
             </View>
           </View>
-        </View>
-      </Modal>
-    </SafeAreaView>
+        </Modal>
+
+        {/* Handover */}
+        <Modal visible={!!handoverForm} transparent animationType="slide" onRequestClose={() => setHandoverForm(null)}>
+          <View style={styles.modalWrap}>
+            <View style={styles.modalCard}>
+              <Text style={styles.modalTitle}>Record the handover</Text>
+              <Text style={styles.hint}>The client's signature is the handover: the record cannot be made without the signed sheet.</Text>
+              <TextInput style={styles.input} placeholder="Accepted by (client's name) *" placeholderTextColor={colors.textLight} value={handoverForm?.name ?? ""} onChangeText={(t) => setHandoverForm((f) => f && { ...f, name: t })} />
+              <TextInput style={[styles.input, { height: 76, textAlignVertical: "top" }]} multiline placeholder="Notes" placeholderTextColor={colors.textLight} value={handoverForm?.notes ?? ""} onChangeText={(t) => setHandoverForm((f) => f && { ...f, notes: t })} />
+              <View style={{ flexDirection: "row", gap: 8 }}>
+                <Button title="Photograph signed sheet" small variant="secondary" icon="camera-outline" style={{ flex: 1 }} onPress={async () => { const a = await takePhoto(); if (a) setHandoverForm((f) => f && { ...f, doc: asUpload(a, "handover.jpg"), docName: "photo taken" }); }} />
+                <Button title="Pick a file" small variant="secondary" icon="folder-open-outline" style={{ flex: 1 }} onPress={async () => { const a = await pickFromLibrary(); if (a) setHandoverForm((f) => f && { ...f, doc: asUpload(a, "handover.jpg"), docName: a.fileName ?? "file chosen" }); }} />
+              </View>
+              {handoverForm?.docName ? <Text style={[styles.hint, { color: "#047857" }]}>Attached: {handoverForm.docName}</Text> : null}
+              <View style={styles.modalActions}>
+                <Button title="Cancel" small variant="secondary" onPress={() => setHandoverForm(null)} />
+                <Button title="Record handover" small onPress={submitHandover} />
+              </View>
+            </View>
+          </View>
+        </Modal>
+      </SafeAreaView>
+    </Wash>
   );
 }
 
 const styles = StyleSheet.create({
-  safe: { flex: 1, backgroundColor: colors.bg },
-  err: { padding: spacing.lg, color: colors.textMuted },
-  headRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
+  headRow: { flexDirection: "row", alignItems: "center", gap: spacing.md },
   code: { fontSize: font.h2, fontWeight: "800", color: colors.text },
   sub: { fontSize: font.sm, color: colors.textMuted, marginTop: 2 },
-  siteLine: { flexDirection: "row", alignItems: "center", gap: 5, marginTop: 6, flexWrap: "wrap" },
-  site: { fontSize: font.sm, color: colors.textMuted },
-  dueText: { fontSize: font.sm, color: colors.textMuted },
-  escBanner: {
-    flexDirection: "row", alignItems: "center", gap: 8, marginTop: spacing.md,
-    backgroundColor: "#fee2e2", borderRadius: radius.md, padding: spacing.md,
-  },
-  escText: { flex: 1, fontSize: font.sm, fontWeight: "700", color: "#b91c1c" },
-  progHead: { flexDirection: "row", justifyContent: "space-between", alignItems: "center" },
-  progLabel: { fontSize: font.body, fontWeight: "700", color: colors.text },
-  progPct: { fontSize: font.h3, fontWeight: "800", color: colors.primary },
-  track: { height: 8, borderRadius: 999, backgroundColor: colors.border, overflow: "hidden" },
-  fill: { height: 8, borderRadius: 999, backgroundColor: colors.primary },
-  progSub: { fontSize: font.xs, color: colors.textMuted, fontWeight: "600" },
-  notes: { fontSize: font.sm, color: colors.textMuted },
-  signature: { width: "100%", height: 90, borderRadius: radius.md, backgroundColor: "#fff", marginTop: 4 },
-  section: { fontSize: font.h3, fontWeight: "800", color: colors.text, marginTop: spacing.xl, marginBottom: 4 },
-  hint: { fontSize: font.xs, color: colors.textLight, marginBottom: spacing.md },
-  stepRow: { flexDirection: "row", alignItems: "center", gap: spacing.md },
-  stepNum: { width: 34, height: 34, borderRadius: 10, alignItems: "center", justifyContent: "center" },
-  stepNumText: { fontSize: font.body, fontWeight: "800" },
-  stepName: { fontSize: font.body, fontWeight: "700", color: colors.text },
-  statusRow: { flexDirection: "row", alignItems: "center", gap: 4, marginTop: 2 },
-  statusText: { fontSize: font.sm, fontWeight: "600" },
-  photoHead: { flexDirection: "row", justifyContent: "space-between", alignItems: "center" },
-  typeRow: { flexDirection: "row", gap: spacing.sm, marginBottom: spacing.md, flexWrap: "wrap" },
-  empty: { fontSize: font.sm, color: colors.textMuted },
+  muted: { fontSize: font.sm, color: colors.textMuted, padding: spacing.sm },
+  hint: { fontSize: font.sm, color: colors.textMuted, lineHeight: 19 },
+  step: { gap: 8, paddingVertical: 8, borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: colors.border },
+  stepTop: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 8 },
+  stepName: { flex: 1, fontSize: font.sm, fontWeight: "700", color: colors.text },
+  stepBtns: { flexDirection: "row", alignItems: "center", gap: 8, flexWrap: "wrap" },
   photoGrid: { flexDirection: "row", flexWrap: "wrap", gap: spacing.sm },
-  photo: { width: 104, height: 104, borderRadius: radius.md, backgroundColor: colors.border },
-  modalWrap: { flex: 1, backgroundColor: "rgba(0,0,0,0.45)", justifyContent: "flex-end" },
-  modalCard: {
-    backgroundColor: colors.card, borderTopLeftRadius: radius.lg, borderTopRightRadius: radius.lg,
-    padding: spacing.lg, gap: spacing.md,
-  },
+  photo: { width: 100, height: 100, borderRadius: radius.md, backgroundColor: colors.border },
+  photoTag: { fontSize: font.xs, color: colors.textMuted, textAlign: "center", marginTop: 2, textTransform: "capitalize" },
+  modalWrap: { flex: 1, backgroundColor: "rgba(22,49,68,0.55)", justifyContent: "flex-end" },
+  modalCard: { backgroundColor: colors.card, borderTopLeftRadius: radius.lg, borderTopRightRadius: radius.lg, padding: spacing.lg, gap: spacing.md },
   modalTitle: { fontSize: font.h3, fontWeight: "800", color: colors.text },
-  modalSub: { fontSize: font.sm, color: colors.textMuted },
-  input: {
-    borderWidth: 1, borderColor: colors.border, borderRadius: radius.md,
-    paddingHorizontal: spacing.md, paddingVertical: 10, fontSize: font.body, color: colors.text,
-    backgroundColor: colors.bg,
-  },
-  modalActions: { flexDirection: "row", justifyContent: "flex-end", gap: spacing.sm, marginTop: spacing.sm },
+  modalActions: { flexDirection: "row", justifyContent: "flex-end", gap: spacing.sm },
+  typeWrap: { flexDirection: "row", flexWrap: "wrap", gap: 6 },
+  typeChip: { borderRadius: radius.pill, paddingHorizontal: 12, paddingVertical: 7, backgroundColor: colors.secondary },
+  typeChipOn: { backgroundColor: colors.primary },
+  typeText: { fontSize: font.xs, fontWeight: "700", color: colors.text },
+  input: { borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, paddingHorizontal: spacing.md, paddingVertical: 10, fontSize: font.body, color: colors.text, backgroundColor: colors.bg, fontFamily: "Urbanist_500Medium" },
 });

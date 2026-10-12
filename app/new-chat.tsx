@@ -1,7 +1,8 @@
 import { Ionicons } from "@expo/vector-icons";
 import { router } from "expo-router";
 import { useEffect, useMemo, useState } from "react";
-import { FlatList, Pressable, StyleSheet, Text, TextInput, View } from "react-native";
+import { FlatList, Pressable, StyleSheet, TextInput, View } from "react-native";
+import { Text } from "@/components/text";
 
 import { Avatar, EmptyState, Loading } from "@/components/ui";
 import { colors, font, radius, spacing } from "@/constants/theme";

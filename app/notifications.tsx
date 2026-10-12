@@ -1,7 +1,8 @@
 import { Ionicons } from "@expo/vector-icons";
 import { router, Stack } from "expo-router";
 import { useCallback, useEffect, useState } from "react";
-import { FlatList, Pressable, RefreshControl, StyleSheet, Text, View } from "react-native";
+import { FlatList, Pressable, RefreshControl, StyleSheet, View } from "react-native";
+import { Text } from "@/components/text";
 
 import { EmptyState, Loading } from "@/components/ui";
 import { colors, font, radius, spacing } from "@/constants/theme";
@@ -43,7 +44,7 @@ export default function NotificationsScreen() {
     const q = (k: string) => new URLSearchParams(link.split("?")[1] ?? "").get(k);
     if (link.startsWith("/tickets") && q("open")) return `/ticket/${q("open")}`;
     if (link.startsWith("/installation-tracker") && q("installation")) return `/installation/${q("installation")}`;
-    if (link.startsWith("/maintenance")) return q("schedule") ? `/admin/maintenance?schedule=${q("schedule")}` : "/admin/maintenance";
+    if (link.startsWith("/maintenance")) return q("schedule") ? `/job/${q("schedule")}` : "/(tabs)/jobs";
     return null;
   }
 
@@ -67,8 +68,7 @@ export default function NotificationsScreen() {
       (n as { installation?: string }).installation || (n.data?.installation_id as string | undefined);
     if (ticketId) router.push(`/ticket/${ticketId}`);
     else if (installationId) router.push(`/installation/${installationId}`);
-    else if (n.notification_type === "installation_escalated") router.push("/installations");
-    else if (n.notification_type === "maintenance_reminder") router.push("/admin/maintenance");
+    else if (n.notification_type === "installation_escalated" || n.notification_type === "maintenance_reminder") router.push("/(tabs)/jobs");
     else load();
   }
 

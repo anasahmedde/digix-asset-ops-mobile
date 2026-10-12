@@ -7,11 +7,12 @@ import { colors } from "@/constants/theme";
 import api from "@/lib/api";
 import { registerForPush, setupNotificationTapHandler } from "@/lib/push";
 
+/**
+ * Five tabs, all field work: what is on today, the jobs, the scanner, the
+ * team's messages, and the person. The office's screens live on the desktop.
+ */
 export default function TabLayout() {
   const [unread, setUnread] = useState(0);
-  // A fixed bar height puts the labels under the home indicator on phones
-  // that have one, and clips them on those that do not. The bar is as tall
-  // as its content plus whatever the device reserves at the bottom.
   const insets = useSafeAreaInsets();
 
   const loadUnread = useCallback(async () => {
@@ -29,7 +30,7 @@ export default function TabLayout() {
     return () => clearInterval(t);
   }, [loadUnread]);
 
-  // Register this device for push + route notification taps (once, when signed in).
+  // This device hears the same notices the desktop shows, as push.
   useEffect(() => {
     registerForPush();
     const unsubscribe = setupNotificationTapHandler();
@@ -49,20 +50,16 @@ export default function TabLayout() {
           paddingBottom: 8 + insets.bottom,
           paddingTop: 6,
         },
-        tabBarLabelStyle: { fontSize: 11, fontWeight: "600" },
+        tabBarLabelStyle: { fontSize: 11, fontFamily: "Urbanist_600SemiBold" },
       }}
     >
       <Tabs.Screen
         name="index"
-        options={{ title: "Home", tabBarIcon: ({ color, size, focused }) => <Ionicons name={focused ? "home" : "home-outline"} size={size} color={color} /> }}
+        options={{ title: "Today", tabBarIcon: ({ color, size, focused }) => <Ionicons name={focused ? "sunny" : "sunny-outline"} size={size} color={color} /> }}
       />
       <Tabs.Screen
-        name="dashboard"
-        options={{ title: "Workspace", tabBarIcon: ({ color, size, focused }) => <Ionicons name={focused ? "grid" : "grid-outline"} size={size} color={color} /> }}
-      />
-      <Tabs.Screen
-        name="tickets/index"
-        options={{ title: "Tickets", tabBarIcon: ({ color, size, focused }) => <Ionicons name={focused ? "reader" : "reader-outline"} size={size} color={color} /> }}
+        name="jobs/index"
+        options={{ title: "Jobs", tabBarIcon: ({ color, size, focused }) => <Ionicons name={focused ? "construct" : "construct-outline"} size={size} color={color} /> }}
       />
       <Tabs.Screen
         name="scan/index"

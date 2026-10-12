@@ -1,7 +1,8 @@
 import { Ionicons } from "@expo/vector-icons";
 import { router } from "expo-router";
 import { useEffect, useState } from "react";
-import { Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
+import { Pressable, ScrollView, StyleSheet, View } from "react-native";
+import { Text } from "@/components/text";
 import { SafeAreaView } from "react-native-safe-area-context";
 
 import { Avatar, Button, Card, Loading, Row } from "@/components/ui";
@@ -12,8 +13,7 @@ import { getCurrentUser } from "@/lib/user";
 
 type IconName = keyof typeof Ionicons.glyphMap;
 const MENU: { label: string; icon: IconName; href: string; tint: string }[] = [
-  { label: "Attendance", icon: "time-outline", href: "/attendance", tint: colors.success },
-  { label: "Site Visits", icon: "map-outline", href: "/visits", tint: colors.violet },
+  { label: "My jobs", icon: "construct-outline", href: "/(tabs)/jobs", tint: colors.success },
   { label: "Notifications", icon: "notifications-outline", href: "/notifications", tint: colors.warning },
   { label: "Messages", icon: "chatbubbles-outline", href: "/(tabs)/messages", tint: colors.primary },
 ];
