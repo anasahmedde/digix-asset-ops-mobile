@@ -80,7 +80,7 @@ export default function ChatThreadScreen() {
                 <View style={[styles.bubble, mine ? styles.bubbleMine : styles.bubbleTheirs]}>
                   {!mine && <Text style={styles.sender}>{item.sender_name}</Text>}
                   <Text style={[styles.msgText, mine && { color: "#fff" }]}>{item.content}</Text>
-                  <Text style={[styles.msgTime, mine && { color: "#dbe6ff" }]}>{timeOnly(item.created_at)}</Text>
+                  <Text style={[styles.msgTime, mine && { color: "#c9e6d8" }]}>{timeOnly(item.created_at)}</Text>
                 </View>
               </View>
             );

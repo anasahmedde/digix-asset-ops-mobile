@@ -3,6 +3,7 @@ import { useEffect } from "react";
 import { ActivityIndicator, StyleSheet, View } from "react-native";
 
 import { isAuthenticated } from "@/lib/auth";
+import { colors } from "@/constants/theme";
 
 export default function Index() {
   useEffect(() => {
@@ -14,11 +15,11 @@ export default function Index() {
 
   return (
     <View style={styles.center}>
-      <ActivityIndicator size="large" color="#2563eb" />
+      <ActivityIndicator size="large" color={colors.primary} />
     </View>
   );
 }
 
 const styles = StyleSheet.create({
-  center: { flex: 1, justifyContent: "center", alignItems: "center", backgroundColor: "#f5f5f5" },
+  center: { flex: 1, justifyContent: "center", alignItems: "center", backgroundColor: colors.bg },
 });
