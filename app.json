@@ -2,7 +2,7 @@
   "expo": {
     "name": "DIGIX Field",
     "slug": "digix-field",
-    "version": "1.0.0",
+    "version": "1.1.2",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
     "scheme": "digix",
@@ -10,7 +10,7 @@
     "splash": {
       "image": "./assets/splash-icon.png",
       "resizeMode": "contain",
-      "backgroundColor": "#059669"
+      "backgroundColor": "#1b405b"
     },
     "ios": {
       "supportsTablet": false,
@@ -22,10 +22,10 @@
       }
     },
     "android": {
-      "versionCode": 1,
+      "versionCode": 4,
       "adaptiveIcon": {
         "foregroundImage": "./assets/adaptive-icon.png",
-        "backgroundColor": "#059669"
+        "backgroundColor": "#1b405b"
       },
       "package": "com.digix.field",
       "permissions": [
@@ -53,7 +53,7 @@
       [
         "expo-notifications",
         {
-          "color": "#059669"
+          "color": "#1b405b"
         }
       ],
       [

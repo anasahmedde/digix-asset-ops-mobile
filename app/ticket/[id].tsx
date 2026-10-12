@@ -17,8 +17,6 @@ import { timeAgo, mediaUrl } from "@/lib/format";
 import { Ticket, User } from "@/lib/types";
 import { getCurrentUser } from "@/lib/user";
 
-const MANAGER_ROLES = ["super_admin", "group_head", "ops_manager", "supervisor"];
-
 export default function TicketDetailScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const [ticket, setTicket] = useState<Ticket | null>(null);
@@ -51,14 +49,18 @@ export default function TicketDetailScreen() {
     // The API already scopes a vendor's tickets to their own supplier, so a
     // visible ticket with a vendor assignment is theirs to work.
     const vendorAssignee = me.role === "vendor" && !!ticket.assigned_vendor;
+    // The same capabilities the server checks on each move.
+    const can = (c: string) => (me.capabilities ?? []).includes(c);
     const within7d = ticket.closed_at
       ? Date.now() - new Date(ticket.closed_at).getTime() <= 7 * 24 * 3600 * 1000
       : false;
     return {
       isAssignee: ticket.assigned_to === me.id || vendorAssignee,
-      isReviewer: ticket.reported_by === me.id || MANAGER_ROLES.includes(me.role),
-      isMarketing: ["marketing", "marketing_head"].includes(me.role) || MANAGER_ROLES.includes(me.role),
-      isManager: MANAGER_ROLES.includes(me.role),
+      // The server says who reviews this ticket: the reporter, the
+      // technician's own reporting line, or whoever acts across teams.
+      isReviewer: ticket.reviewable_by_me ?? (ticket.reported_by === me.id || can("assign_ticket")),
+      isMarketing: can("relay_client_decision"),
+      isManager: can("assign_ticket"),
       canReopen:
         ticket.status === "closed" && within7d &&
         (["super_admin", "group_head", "ops_manager"].includes(me.role) || ticket.reported_by === me.id),

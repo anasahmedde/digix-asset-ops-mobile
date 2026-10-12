@@ -1,5 +1,6 @@
 import { Ionicons } from "@expo/vector-icons";
 import * as ImagePicker from "expo-image-picker";
+import { useLocalSearchParams } from "expo-router";
 import { useCallback, useEffect, useState } from "react";
 import { FlatList, Modal, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
@@ -48,7 +49,10 @@ export default function MaintenanceScreen() {
   const [search, setSearch] = useState("");
   const [mineOnly, setMineOnly] = useState(false);
   const [meId, setMeId] = useState<string | null>(null);
+  const [meCaps, setMeCaps] = useState<string[]>([]);
   const [selected, setSelected] = useState<Schedule | null>(null);
+  // Opened from a notification: land on that job.
+  const { schedule: wanted } = useLocalSearchParams<{ schedule?: string }>();
   const [busy, setBusy] = useState(false);
 
   // Complete-cycle form
@@ -74,8 +78,14 @@ export default function MaintenanceScreen() {
 
   useEffect(() => {
     load();
-    getCurrentUser().then((u) => setMeId(u.id)).catch(() => {});
+    getCurrentUser().then((u) => { setMeId(u.id); setMeCaps(u.capabilities ?? []); }).catch(() => {});
   }, [load]);
+
+  useEffect(() => {
+    if (!wanted || selected) return;
+    const hit = schedules.find((s) => s.id === wanted);
+    if (hit) setSelected(hit);
+  }, [wanted, schedules, selected]);
 
   async function startWork() {
     if (!selected || busy) return;
@@ -189,7 +199,7 @@ export default function MaintenanceScreen() {
                 <Text style={styles.title} numberOfLines={1}>{item.title}</Text>
                 <Pill label={item.status_display || cap(st)} fg={tone.fg} bg={tone.bg} />
               </View>
-              <Text style={styles.meta} numberOfLines={1}>{[cap(item.maintenance_type), cap(item.frequency)].filter(Boolean).join(" · ")}</Text>
+              <Text style={styles.meta} numberOfLines={1}>{[cap(item.maintenance_type), cap(item.frequency), item.assigned_to_name ? `Assigned to ${item.assigned_to_name}` : "Unassigned"].filter(Boolean).join(" · ")}</Text>
               <View style={styles.bottomRow}>
                 <Text style={styles.sub} numberOfLines={1}>{item.device_code || item.site_name || "—"}</Text>
                 {item.next_due ? <Text style={styles.due}>Due {formatDate(item.next_due)}</Text> : null}
@@ -222,10 +232,11 @@ export default function MaintenanceScreen() {
                 </>
               ) : null}
               <View style={styles.actions}>
-                {selected?.status !== "in_process" && selected?.status !== "completed" ? (
+                {/* The field works its own jobs; the office works any. */}
+                {selected?.status !== "in_process" && selected?.status !== "completed" && (selected?.assigned_to === meId || meCaps.some((c) => ["manage_maintenance", "assign_maintenance", "review_maintenance"].includes(c))) ? (
                   <Button title={busy ? "Starting…" : "Start work"} icon="play" small loading={busy} onPress={startWork} />
                 ) : null}
-                {selected?.status !== "completed" ? (
+                {selected?.status !== "completed" && (selected?.assigned_to === meId || meCaps.some((c) => ["manage_maintenance", "assign_maintenance", "review_maintenance"].includes(c))) ? (
                   <Button title="Complete cycle" icon="checkmark-done" small variant="success" onPress={openComplete} />
                 ) : null}
               </View>

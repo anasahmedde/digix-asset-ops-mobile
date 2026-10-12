@@ -7,6 +7,7 @@ import { Card, EmptyState, Loading, Pill } from "@/components/ui";
 import { colors, font, radius, spacing } from "@/constants/theme";
 import api from "@/lib/api";
 import { toast } from "@/lib/toast";
+import { getCurrentUser } from "@/lib/user";
 
 interface Item {
   id: string;
@@ -26,6 +27,8 @@ export default function InventoryScreen() {
   const [refreshing, setRefreshing] = useState(false);
   const [search, setSearch] = useState("");
   const [lowOnly, setLowOnly] = useState(false);
+  // Only whoever works the store moves stock; everyone else sees what is on the shelf.
+  const [worksStore, setWorksStore] = useState(false);
   const [stock, setStock] = useState<{ item: Item; mode: "receive" | "issue"; qty: string; note: string } | null>(null);
   const [busy, setBusy] = useState(false);
 
@@ -59,7 +62,12 @@ export default function InventoryScreen() {
     }
   }, []);
 
-  useEffect(() => { load(); }, [load]);
+  useEffect(() => {
+    load();
+    getCurrentUser()
+      .then((u) => setWorksStore((u.capabilities ?? []).some((c) => ["manage_stock", "receive_goods", "issue_stock"].includes(c))))
+      .catch(() => {});
+  }, [load]);
 
   if (loading) return <Loading />;
 
@@ -103,6 +111,7 @@ export default function InventoryScreen() {
                 {item.is_low_stock ? <Pill label="Low" fg={colors.danger} bg={colors.dangerSoft} /> : null}
               </View>
             </View>
+            {worksStore && (
             <View style={styles.actionsRow}>
               <Pressable onPress={() => setStock({ item, mode: "receive", qty: "", note: "" })} style={[styles.stockBtn, styles.receiveBtn]}>
                 <Ionicons name="arrow-down-circle-outline" size={16} color={colors.success} />
@@ -113,6 +122,7 @@ export default function InventoryScreen() {
                 <Text style={[styles.stockBtnText, { color: "#b45309" }]}>Issue</Text>
               </Pressable>
             </View>
+            )}
           </Card>
         )}
       />

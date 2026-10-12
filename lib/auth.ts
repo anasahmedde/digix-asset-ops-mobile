@@ -7,6 +7,10 @@ export async function login(username: string, password: string) {
   const { data } = await api.post("/auth/token/", { username, password });
   await SecureStore.setItem("access_token", data.access);
   await SecureStore.setItem("refresh_token", data.refresh);
+  // The session must read back, or the next request goes out without it.
+  if ((await SecureStore.getItem("access_token")) !== data.access) {
+    throw new Error("storage");
+  }
   return data;
 }
 

@@ -38,11 +38,11 @@ async function refreshAccessToken(): Promise<string> {
   return data.access as string;
 }
 
-async function forceLogout() {
+async function forceLogout(reason: string) {
   await SecureStore.deleteItem("access_token");
   await SecureStore.deleteItem("refresh_token");
   try {
-    router.replace("/(auth)/login");
+    router.replace({ pathname: "/(auth)/login", params: { reason } });
   } catch {
     /* navigation may not be ready */
   }
@@ -65,8 +65,9 @@ api.interceptors.response.use(
         originalRequest.headers = originalRequest.headers ?? {};
         originalRequest.headers.Authorization = `Bearer ${newAccess}`;
         return api(originalRequest);
-      } catch {
-        await forceLogout();
+      } catch (refreshError) {
+        const why = (refreshError as { response?: { status?: number } })?.response?.status ?? "no refresh";
+        await forceLogout(`Signed out: ${originalRequest.url} answered 401, refresh ${why}.`);
       }
     }
 

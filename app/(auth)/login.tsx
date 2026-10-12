@@ -1,8 +1,8 @@
 import { Ionicons } from "@expo/vector-icons";
 import { LinearGradient } from "expo-linear-gradient";
-import { router } from "expo-router";
+import { router, useLocalSearchParams } from "expo-router";
 import { StatusBar } from "expo-status-bar";
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import {
   ActivityIndicator,
   KeyboardAvoidingView,
@@ -12,8 +12,7 @@ import {
   StyleSheet,
   Text,
   TextInput,
-  View,
-} from "react-native";
+  View, Image } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 
 import { colors, font, radius, spacing } from "@/constants/theme";
@@ -24,6 +23,9 @@ export default function LoginScreen() {
   const [password, setPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState("");
+  // Why the app came back here on its own, if it did.
+  const { reason } = useLocalSearchParams<{ reason?: string }>();
+  useEffect(() => { if (reason) setError(String(reason)); }, [reason]);
   const [loading, setLoading] = useState(false);
   const [focused, setFocused] = useState<"user" | "pass" | null>(null);
 
@@ -37,8 +39,13 @@ export default function LoginScreen() {
     try {
       await login(username, password);
       router.replace("/(tabs)");
-    } catch {
-      setError("Invalid username or password");
+    } catch (err) {
+      const e = err as { message?: string; response?: { status?: number; data?: { detail?: string } } };
+      setError(
+        e.message === "storage"
+          ? "Signed in, but this phone would not keep the session. Restart the app and try again."
+          : e.response?.data?.detail || (e.response ? `Sign-in failed (${e.response.status})` : "Cannot reach the server. Check the connection."),
+      );
     } finally {
       setLoading(false);
     }
@@ -48,7 +55,7 @@ export default function LoginScreen() {
     <View style={styles.root}>
       <StatusBar style="light" />
       <LinearGradient
-        colors={["#0e9e7d", "#12b48f", "#0b8f79"]}
+        colors={["#163144", "#1b405b", "#2f5f7e"]}
         start={{ x: 0, y: 0 }}
         end={{ x: 1, y: 1 }}
         style={StyleSheet.absoluteFill}
@@ -63,10 +70,10 @@ export default function LoginScreen() {
             {/* Brand */}
             <View style={styles.brand}>
               <View style={styles.logo}>
-                <Ionicons name="cube" size={38} color="#12b48f" />
+                <Image source={require("@/assets/digix-wordmark.png")} style={{ width: 132, height: 32 }} resizeMode="contain" accessibilityLabel="DIGIX" />
               </View>
               <Text style={styles.brandName}>DIGIX Field</Text>
-              <Text style={styles.brandTag}>Asset Operations · Field App</Text>
+              <Text style={styles.brandTag}>Asset Management · Field App</Text>
             </View>
 
             {/* Card */}
@@ -122,7 +129,7 @@ export default function LoginScreen() {
 
               {/* Sign in */}
               <Pressable onPress={handleLogin} disabled={loading} style={({ pressed }) => [styles.button, pressed && !loading && styles.buttonPressed]}>
-                <LinearGradient colors={["#12b48f", "#0e9e7d"]} start={{ x: 0, y: 0 }} end={{ x: 1, y: 0 }} style={styles.buttonBg}>
+                <LinearGradient colors={["#1b405b", "#163144"]} start={{ x: 0, y: 0 }} end={{ x: 1, y: 0 }} style={styles.buttonBg}>
                   {loading ? (
                     <ActivityIndicator color="#fff" />
                   ) : (
@@ -135,7 +142,7 @@ export default function LoginScreen() {
               </Pressable>
             </View>
 
-            <Text style={styles.footer}>DIGIX Asset Operations</Text>
+            <Text style={styles.footer}>DIGIX Asset Management</Text>
           </ScrollView>
         </KeyboardAvoidingView>
       </SafeAreaView>
@@ -151,7 +158,7 @@ const styles = StyleSheet.create({
   blobBottom: { position: "absolute", bottom: -100, left: -90, width: 240, height: 240, borderRadius: 999, backgroundColor: "rgba(255,255,255,0.08)" },
   brand: { alignItems: "center", marginBottom: spacing.xxl },
   logo: {
-    width: 78, height: 78, borderRadius: 24, backgroundColor: "#fff",
+    width: 180, height: 78, borderRadius: 24, backgroundColor: "#fff",
     alignItems: "center", justifyContent: "center", marginBottom: spacing.md,
     shadowColor: "#000", shadowOpacity: 0.2, shadowRadius: 16, shadowOffset: { width: 0, height: 8 }, elevation: 8,
   },

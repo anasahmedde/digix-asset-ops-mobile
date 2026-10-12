@@ -8,7 +8,7 @@ import { Platform } from "react-native";
  * a name differs it is noted — React Native has no cascade, so the tokens
  * are named for what they are rather than for the CSS variable.
  *
- *   --primary      168 76% 42%   #1abc9c
+ *   --primary      203 54% 23%   #1b405b   (the brand sheet: ink and mint)
  *   --background     0  0% 97%   #f7f7f7
  *   --card           0  0% 100%  #ffffff
  *   --border       220 13% 90%   #e2e4e9
@@ -20,16 +20,16 @@ import { Platform } from "react-native";
  *   --warning       38 92% 50%   #f59f0a
  */
 export const colors = {
-  primary: "#1abc9c",
-  primaryDark: "#149a80",
-  primarySoft: "#e8f8f5",
-  bg: "#f7f7f7",
+  primary: "#1b405b",
+  primaryDark: "#163144",
+  primarySoft: "#dff3eb",
+  bg: "#eef3f5",
   card: "#ffffff",
   border: "#e2e4e9",
   borderStrong: "#cfd2da",
   // `secondary` on the web: the quiet fill behind chips and table headers.
   secondary: "#f1f2f4",
-  text: "#1d212b",
+  text: "#163144",
   textMuted: "#6a7181",
   textLight: "#9aa1af",
   white: "#ffffff",

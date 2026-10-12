@@ -67,7 +67,6 @@ const PHOTO_TYPES = [
   { value: "handover", label: "Handover" },
 ] as const;
 
-const HANDOVER_ROLES = ["super_admin", "group_head", "ops_manager", "supervisor"];
 
 export default function InstallationScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
@@ -77,7 +76,7 @@ export default function InstallationScreen() {
   const [busy, setBusy] = useState<string | null>(null);
   const [uploading, setUploading] = useState(false);
   const [photoType, setPhotoType] = useState<string>("post_install");
-  const [me, setMe] = useState<{ id: string; role: string } | null>(null);
+  const [me, setMe] = useState<{ id: string; role: string; capabilities: string[] } | null>(null);
 
   // Handover form state
   const [handoverOpen, setHandoverOpen] = useState(false);
@@ -98,7 +97,7 @@ export default function InstallationScreen() {
 
   useEffect(() => {
     load();
-    getCurrentUser().then((u) => setMe({ id: u.id, role: u.role })).catch(() => {});
+    getCurrentUser().then((u) => setMe({ id: u.id, role: u.role, capabilities: u.capabilities ?? [] })).catch(() => {});
   }, [load]);
 
   async function setStepStatus(step: Step, status: string) {
@@ -227,7 +226,8 @@ export default function InstallationScreen() {
     !inst.handover &&
     !nonHandoverPending &&
     !!me &&
-    (HANDOVER_ROLES.includes(me.role) || me.id === inst.installed_by);
+    // As the server has it: whoever may close an installation, or its installer.
+    (me.capabilities.includes("close_installation") || me.id === inst.installed_by);
 
   return (
     <SafeAreaView style={styles.safe} edges={["bottom"]}>

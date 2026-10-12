@@ -50,7 +50,7 @@ const MODULES: Module[] = [
 ];
 
 const ROLE_LABELS: Record<string, string> = {
-  super_admin: "Super Admin", group_head: "Group Head", ops_manager: "Operations Head",
+  super_admin: "Administrator", group_head: "Group Head", ops_manager: "Operations Head",
   marketing_head: "Marketing Head", supervisor: "Supervisor", technician: "Technician",
   marketing: "Marketing", warehouse: "Warehouse Staff", finance: "Finance",
   client_viewer: "Client Viewer", vendor: "Vendor",

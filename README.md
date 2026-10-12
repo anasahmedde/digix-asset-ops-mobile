@@ -1,4 +1,4 @@
-# DIGIX Asset Ops -- Mobile
+# DIGIX Asset Management -- Mobile
 
 React Native (Expo) field technician app for the DIGIX Asset Management & Operations Platform.
 

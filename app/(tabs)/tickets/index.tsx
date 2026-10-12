@@ -16,7 +16,7 @@ const STATUS_FILTERS = [
   { key: "in_progress", label: "In Progress" },
   { key: "alignment_pending", label: "Alignment" },
   { key: "on_hold", label: "On Hold" },
-  { key: "pending_review", label: "Review" },
+  { key: "pending_review", label: "In Review" },
   { key: "closed", label: "Closed" },
 ];
 

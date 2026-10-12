@@ -37,12 +37,31 @@ export default function NotificationsScreen() {
 
   useEffect(() => { load(); }, [load]);
 
+  // The desktop's link, turned into this app's screen.
+  function routeFor(link?: string): string | null {
+    if (!link) return null;
+    const q = (k: string) => new URLSearchParams(link.split("?")[1] ?? "").get(k);
+    if (link.startsWith("/tickets") && q("open")) return `/ticket/${q("open")}`;
+    if (link.startsWith("/installation-tracker") && q("installation")) return `/installation/${q("installation")}`;
+    if (link.startsWith("/maintenance")) return q("schedule") ? `/admin/maintenance?schedule=${q("schedule")}` : "/admin/maintenance";
+    return null;
+  }
+
   async function markAllRead() {
     try { await api.post("/notifications/notifications/mark_all_read/"); load(); } catch { /* ignore */ }
   }
 
+  // A notice that waits on an action stays until the job moves or it is
+  // acknowledged; opening it only takes you there.
+  async function acknowledge(n: AppNotification) {
+    setItems((prev) => prev.map((x) => (x.id === n.id ? { ...x, is_read: true } : x)));
+    api.post(`/notifications/notifications/${n.id}/mark_read/`).catch(() => {});
+  }
+
   async function open(n: AppNotification) {
-    if (!n.is_read) api.post(`/notifications/notifications/${n.id}/mark_read/`).catch(() => {});
+    if (!n.is_read && !n.is_actionable) acknowledge(n);
+    const linked = routeFor(n.link);
+    if (linked) { router.push(linked as never); return; }
     const ticketId = n.ticket || (n.data?.ticket_id as string | undefined);
     const installationId =
       (n as { installation?: string }).installation || (n.data?.installation_id as string | undefined);
@@ -74,10 +93,22 @@ export default function NotificationsScreen() {
                 <View style={[styles.icon, { backgroundColor: m.tint + "1a" }]}><Ionicons name={m.icon} size={18} color={m.tint} /></View>
                 <View style={{ flex: 1 }}>
                   <Text style={styles.title} numberOfLines={1}>{item.title}</Text>
+                  {/* Which kind it is: something to do, or something to know. */}
+                  {(() => {
+                    const pinned = !!item.is_actionable && !item.resolved_at;
+                    const label = pinned ? "Action required" : item.is_actionable ? "Done" : "For info";
+                    const fg = pinned ? "#b45309" : item.is_actionable ? colors.success : colors.textMuted;
+                    const bg = pinned ? colors.warningSoft : item.is_actionable ? colors.successSoft : colors.secondary;
+                    return <Text style={[styles.kind, { color: fg, backgroundColor: bg }]}>{label}</Text>;
+                  })()}
                   {item.message ? <Text style={styles.message} numberOfLines={2}>{item.message}</Text> : null}
                   <Text style={styles.time}>{timeAgo(item.created_at)}</Text>
                 </View>
-                {!item.is_read && <View style={styles.dot} />}
+                {!item.is_read && (
+                  <Pressable onPress={() => acknowledge(item)} hitSlop={8} accessibilityLabel="Acknowledge" style={styles.ack}>
+                    <Ionicons name="checkmark-circle-outline" size={22} color={colors.primary} />
+                  </Pressable>
+                )}
               </Pressable>
             );
           }}
@@ -93,7 +124,9 @@ const styles = StyleSheet.create({
   rowUnread: { backgroundColor: "#f5f8ff" },
   icon: { width: 38, height: 38, borderRadius: 12, alignItems: "center", justifyContent: "center" },
   title: { fontSize: font.body, fontWeight: "700", color: colors.text },
+  kind: { alignSelf: "flex-start", marginTop: 3, borderRadius: 6, paddingHorizontal: 6, paddingVertical: 2, fontSize: font.xs, fontWeight: "700", overflow: "hidden" },
   message: { fontSize: font.sm, color: colors.textMuted, marginTop: 2, lineHeight: 18 },
   time: { fontSize: font.xs, color: colors.textLight, marginTop: 4 },
   dot: { width: 9, height: 9, borderRadius: 5, backgroundColor: colors.primary, marginTop: 6 },
+  ack: { padding: 4, marginTop: 2 },
 });

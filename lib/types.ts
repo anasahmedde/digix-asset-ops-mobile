@@ -38,6 +38,8 @@ export interface Ticket {
   charge_to?: string;
   repair_cost?: string | null;
   warranty_info?: { id: string; warranty_type: string; end_date: string; status: string } | null;
+  /** Whether this viewer may review the work: set by the server from the reporting line. */
+  reviewable_by_me?: boolean;
   devices_info?: { id: string; asset_code: string; display_name: string | null }[];
   assigned_vendor?: string | null;
   title: string;
@@ -145,9 +147,13 @@ export interface AppNotification {
   title: string;
   message: string;
   ticket?: string | null;
+  /** Where the desktop opens it; mapped to the matching screen here. */
+  link?: string;
   data?: Record<string, unknown>;
   is_read: boolean;
   is_actionable?: boolean;
+  /** Set once the thing it asked for has been done. */
+  resolved_at?: string | null;
   created_at: string;
 }
 
@@ -167,7 +173,7 @@ export interface AttendanceRecord {
 }
 
 export const ROLE_LABELS: Record<string, string> = {
-  super_admin: "Super Admin",
+  super_admin: "Administrator",
   group_head: "Group Head",
   ops_manager: "Operations Manager",
   marketing_head: "Marketing Head",
