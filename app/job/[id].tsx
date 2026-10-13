@@ -5,6 +5,7 @@ import { Image, Modal, Pressable, RefreshControl, ScrollView, StyleSheet, TextIn
 import { SafeAreaView } from "react-native-safe-area-context";
 
 import { FlowStep, Note, PresenceCard, Section, Wash } from "@/components/field";
+import { ScanSheet } from "@/components/scan-sheet";
 import { Text } from "@/components/text";
 import { Button, Card, Pill, Row } from "@/components/ui";
 import { colors, font, radius, spacing } from "@/constants/theme";
@@ -31,6 +32,7 @@ interface VisitPhoto { id: string; kind: string; image: string; caption: string 
 interface Visit {
   id: string; sequence: number; status: string; status_display: string; assigned_to: string | null; due_date: string | null;
   started_at: string | null; completed_at: string | null; remarks: string; resolved: boolean | null;
+  asset_verified_at: string | null;
   review_decision: string | null; review_note: string | null; visit_photos: VisitPhoto[]; has_before_photo: boolean; has_after_photo: boolean;
 }
 interface Part {
@@ -56,6 +58,7 @@ export default function JobScreen() {
   const [refreshing, setRefreshing] = useState(false);
   const [busy, setBusy] = useState<string | null>(null);
   const [notes, setNotes] = useState("");
+  const [scan, setScan] = useState(false);
   const [partForm, setPartForm] = useState<{ q: string; results: StockPick[]; pick: StockPick | null; qty: string; reason: string } | null>(null);
   const [finish, setFinish] = useState<{ resolved: boolean | null; used: Record<string, string>; back: Record<string, string[]> } | null>(null);
 
@@ -102,12 +105,15 @@ export default function JobScreen() {
   const mine = !!me && (me.id === (current?.assigned_to ?? job.assigned_to));
   const here = onSite(presence, job.site);
   const closed = ["completed", "cancelled"].includes(job.status) || !current;
-  const canAct = mine && here && !closed && !!current;
+  // The phone has read the label on the asset this job is for. A job with
+  // no asset has nothing to scan.
+  const verified = !job.device || !!current?.asset_verified_at;
+  const canAct = mine && here && verified && !closed && !!current;
   const awaiting = current?.status === "awaiting_review";
   const started = current?.status === "in_progress";
   const before = !!current?.has_before_photo;
   const after = !!current?.has_after_photo;
-  const stage = !here && !closed ? 1 : !before ? 2 : !started && !awaiting ? 3 : !after && !awaiting ? 4 : !awaiting ? 5 : here ? 6 : 7;
+  const stage = !here && !closed ? 1 : !verified ? 2 : !before ? 3 : !started && !awaiting ? 4 : !after && !awaiting ? 5 : !awaiting ? 6 : here ? 7 : 8;
   const myParts = parts.filter((p) => !current || !p.visit || p.visit === current.id);
   const issued = myParts.filter((p) => p.quantity_issued && p.quantity_issued > 0 && p.quantity_used == null);
 
@@ -129,6 +135,14 @@ export default function JobScreen() {
     } catch { /* no fix, no matter */ }
     await api.post(`/maintenance/visits/${current.id}/photos/`, fd, { headers: { "Content-Type": "multipart/form-data" } });
   }, "Photo upload failed");
+  const verify = (code: string) => {
+    setScan(false);
+    run("verify", async () => {
+      if (!current) return;
+      await api.post(`/maintenance/visits/${current.id}/verify-asset/`, { code });
+      toast.success(`${job.device_code} confirmed`);
+    }, "That label is not this job's asset");
+  };
   const start = () => run("start", async () => {
     if (!current) return;
     let where: Record<string, string> = {};
@@ -212,20 +226,30 @@ export default function JobScreen() {
           {job.ticket ? <Pressable onPress={() => router.push(`/ticket/${job.ticket}`)} style={styles.linkRow}><Ionicons name="reader-outline" size={15} color={colors.primary} /><Text style={styles.link}>Open ticket {job.ticket_number}</Text></Pressable> : null}
 
           <PresenceCard presence={presence} site={job.site} siteName={job.site_name ?? "the site"} mine={mine} busy={busy === "presence"} onCheckIn={clockIn} onCheckOut={clockOut} />
+          <ScanSheet open={scan} expect={job.device_code ?? ""} onScan={verify} onClose={() => setScan(false)} />
 
           {closed ? <Note>This job is {job.status_display.toLowerCase()}.</Note> : null}
           {current?.review_decision === "unresolved" && current.review_note ? <Note tone="bad">Sent back: {current.review_note}</Note> : null}
 
           <Section title="The visit, step by step">
             <FlowStep n={1} title="Check in at the site" state={here || closed ? "done" : "now"} />
-            <FlowStep n={2} title="Before photo" state={before ? "done" : stage === 2 ? "now" : "later"}>
-              {stage === 2 && canAct ? <Button title="Take the Before photo" icon="camera" loading={busy === "before"} onPress={() => photo("before")} /> : null}
+            <FlowStep n={2} title="Scan the asset's label" state={verified || closed ? "done" : stage === 2 ? "now" : "later"}>
+              {stage === 2 && mine && here && current ? (
+                <>
+                  <Text style={styles.hint}>Point the camera at the QR label on {job.device_code}. Your buttons open once it matches.</Text>
+                  <Button title="Scan asset QR" icon="qr-code-outline" loading={busy === "verify"} onPress={() => setScan(true)} />
+                </>
+              ) : null}
+              {verified && current?.asset_verified_at && job.device ? <Text style={styles.hint}>{job.device_code} confirmed on site.</Text> : null}
             </FlowStep>
-            <FlowStep n={3} title="Start work" state={started || awaiting ? "done" : stage === 3 ? "now" : "later"}>
-              {stage === 3 && canAct ? <Button title="Start work" icon="play" loading={busy === "start"} onPress={start} /> : null}
-              {stage === 3 && canAct && myParts.some((p) => p.status === "approved" && !p.quantity_issued) ? <Note tone="warn">A requested part is not in your hands yet; the store issues it first.</Note> : null}
+            <FlowStep n={3} title="Before photo" state={before ? "done" : stage === 3 ? "now" : "later"}>
+              {stage === 3 && canAct ? <Button title="Take the Before photo" icon="camera" loading={busy === "before"} onPress={() => photo("before")} /> : null}
             </FlowStep>
-            <FlowStep n={4} title="Work and notes" state={after || awaiting ? "done" : stage === 4 ? "now" : "later"}>
+            <FlowStep n={4} title="Start work" state={started || awaiting ? "done" : stage === 4 ? "now" : "later"}>
+              {stage === 4 && canAct ? <Button title="Start work" icon="play" loading={busy === "start"} onPress={start} /> : null}
+              {stage === 4 && canAct && myParts.some((p) => p.status === "approved" && !p.quantity_issued) ? <Note tone="warn">A requested part is not in your hands yet; the store issues it first.</Note> : null}
+            </FlowStep>
+            <FlowStep n={5} title="Work and notes" state={after || awaiting ? "done" : stage === 5 ? "now" : "later"}>
               {(started || awaiting) ? (
                 <>
                   <TextInput style={[styles.input, { height: 84, textAlignVertical: "top" }]} multiline editable={canAct && started} placeholder="What was found, what was done" placeholderTextColor={colors.textLight} value={notes} onChangeText={setNotes} />
@@ -234,12 +258,12 @@ export default function JobScreen() {
                 </>
               ) : null}
             </FlowStep>
-            <FlowStep n={5} title="Send for review" state={awaiting || closed ? "done" : stage === 5 ? "now" : "later"}>
-              {stage === 5 && canAct ? <Button title="End work and send for review" icon="paper-plane-outline" variant="success" onPress={() => setFinish({ resolved: null, used: {}, back: {} })} /> : null}
+            <FlowStep n={6} title="Send for review" state={awaiting || closed ? "done" : stage === 6 ? "now" : "later"}>
+              {stage === 6 && canAct ? <Button title="End work and send for review" icon="paper-plane-outline" variant="success" onPress={() => setFinish({ resolved: null, used: {}, back: {} })} /> : null}
               {awaiting ? <Text style={styles.hint}>With your supervisor for review.</Text> : null}
             </FlowStep>
-            <FlowStep n={6} title="Check out" state={stage === 7 ? "done" : stage === 6 ? "now" : "later"}>
-              {stage === 6 && here ? <Button title="Check out of the site" icon="log-out-outline" variant="secondary" loading={busy === "presence"} onPress={clockOut} /> : null}
+            <FlowStep n={7} title="Check out" state={stage === 8 ? "done" : stage === 7 ? "now" : "later"}>
+              {stage === 7 && here ? <Button title="Check out of the site" icon="log-out-outline" variant="secondary" loading={busy === "presence"} onPress={clockOut} /> : null}
             </FlowStep>
           </Section>
 

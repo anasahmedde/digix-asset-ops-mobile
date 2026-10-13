@@ -5,6 +5,7 @@ import { Alert, Image, Modal, Pressable, RefreshControl, ScrollView, StyleSheet,
 import { SafeAreaView } from "react-native-safe-area-context";
 
 import { FlowStep, Note, PresenceCard, Section, Wash } from "@/components/field";
+import { ScanSheet } from "@/components/scan-sheet";
 import { Text } from "@/components/text";
 import { Button, Card, Pill, Row } from "@/components/ui";
 import { colors, font, radius, spacing } from "@/constants/theme";
@@ -33,6 +34,7 @@ interface Installation {
   site: string; site_name: string; position_label: string; progress: number;
   due_date: string | null; completed_at: string | null; installed_by: string | null; installed_by_name?: string | null;
   client_names?: string[]; handover: Handover | null; steps: Step[]; photos: Photo[];
+  asset_verified_at: string | null;
 }
 
 const STEP_TYPES = [
@@ -55,6 +57,7 @@ export default function InstallationScreen() {
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [busy, setBusy] = useState<string | null>(null);
+  const [scan, setScan] = useState(false);
   const [stepForm, setStepForm] = useState<{ type: string; label: string } | null>(null);
   const [handoverForm, setHandoverForm] = useState<{ name: string; notes: string; doc: ReturnType<typeof asUpload> | null; docName: string } | null>(null);
 
@@ -99,12 +102,15 @@ export default function InstallationScreen() {
 
   const mine = !!me && me.id === inst.installed_by;
   const here = onSite(presence, inst.site);
-  const canAct = mine && here && !inst.completed_at;
+  // The phone has read the label on this asset: the checklist is being
+  // worked on the right one.
+  const verified = !!inst.asset_verified_at;
+  const canAct = mine && here && verified && !inst.completed_at;
   const workSteps = inst.steps.filter((s) => s.step_type !== "handover");
   const allDone = workSteps.length > 0 && workSteps.every((s) => s.status === "completed" || s.status === "skipped");
   const active = inst.device_status === "active" || inst.photos.some((p) => p.photo_type === "post_install") && allDone && !!inst.handover;
   const isLive = inst.device_status ? inst.device_status === "active" || inst.device_status === "client_property" : active;
-  const stage: 1 | 2 | 3 | 4 | 5 = !here && !inst.completed_at ? 1 : !allDone ? 2 : !isLive ? 3 : !inst.handover ? 4 : 5;
+  const stage: 1 | 2 | 3 | 4 | 5 | 6 = !here && !inst.completed_at ? 1 : !verified && !inst.completed_at ? 2 : !allDone ? 3 : !isLive ? 4 : !inst.handover ? 5 : 6;
 
   // -- the actions
   const setStep = (s: Step, status: string) => run(s.id, async () => { await api.patch(`/sites/installation-steps/${s.id}/`, { status }); }, "Could not update the step");
@@ -128,6 +134,13 @@ export default function InstallationScreen() {
     fd.append("image", asUpload(a, "install.jpg"));
     await api.post("/sites/installation-photos/", fd, { headers: { "Content-Type": "multipart/form-data" } });
   }, "Photo upload failed");
+  const verify = (code: string) => {
+    setScan(false);
+    run("verify", async () => {
+      await api.post(`/sites/installations/${inst.id}/verify-asset/`, { code });
+      toast.success(`${inst.device_code} confirmed`);
+    }, "That label is not this installation's asset");
+  };
   const activate = () => run("activate", async () => {
     const a = await takePhoto();
     if (!a) return;
@@ -176,13 +189,25 @@ export default function InstallationScreen() {
           </Card>
 
           <PresenceCard presence={presence} site={inst.site} siteName={inst.site_name} mine={mine} busy={busy === "presence"} onCheckIn={clockIn} onCheckOut={clockOut} />
+          <ScanSheet open={scan} expect={inst.device_code} onScan={verify} onClose={() => setScan(false)} />
 
           {/* 1 Check in */}
           <Section title="The job, step by step">
             <FlowStep n={1} title="Check in at the site" state={here || inst.completed_at ? "done" : "now"} />
 
-            {/* 2 Steps */}
-            <FlowStep n={2} title="Installation steps" state={allDone ? "done" : stage === 2 ? "now" : "later"}>
+            {/* 2 Scan the asset */}
+            <FlowStep n={2} title="Scan the asset's label" state={verified || inst.completed_at ? "done" : stage === 2 ? "now" : "later"}>
+              {stage === 2 && mine && here ? (
+                <>
+                  <Text style={styles.hint}>Point the camera at the QR label on {inst.device_code}. The steps open once it matches.</Text>
+                  <Button title="Scan asset QR" icon="qr-code-outline" loading={busy === "verify"} onPress={() => setScan(true)} />
+                </>
+              ) : null}
+              {verified ? <Text style={styles.hint}>{inst.device_code} confirmed on site.</Text> : null}
+            </FlowStep>
+
+            {/* 3 Steps */}
+            <FlowStep n={3} title="Installation steps" state={allDone ? "done" : stage === 3 ? "now" : "later"}>
               {workSteps.map((s) => {
                 const tone = STEP_TONE[s.status] ?? STEP_TONE.not_started;
                 return (
@@ -206,11 +231,12 @@ export default function InstallationScreen() {
               })}
               {canAct && !allDone ? <Button title="Add a step" small variant="secondary" icon="add" onPress={() => setStepForm({ type: "other", label: "" })} /> : null}
               {!canAct && mine && !here && !inst.completed_at ? <Note tone="warn">Check in at {inst.site_name} to work the steps.</Note> : null}
+              {!canAct && mine && here && !verified && !inst.completed_at ? <Note tone="warn">Scan the label on {inst.device_code} to open the steps.</Note> : null}
             </FlowStep>
 
-            {/* 3 Mark active */}
-            <FlowStep n={3} title="Mark the asset active" state={isLive ? "done" : stage === 3 ? "now" : "later"}>
-              {stage === 3 && canAct ? (
+            {/* 4 Mark active */}
+            <FlowStep n={4} title="Mark the asset active" state={isLive ? "done" : stage === 4 ? "now" : "later"}>
+              {stage === 4 && canAct ? (
                 <>
                   <Text style={styles.hint}>Take a photo of the asset running. That photo is the record that it is live.</Text>
                   <Button title="Photo and mark active" icon="camera" loading={busy === "activate"} onPress={activate} />
@@ -218,14 +244,14 @@ export default function InstallationScreen() {
               ) : null}
             </FlowStep>
 
-            {/* 4 Handover */}
-            <FlowStep n={4} title="Upload the signed handover" state={inst.handover ? "done" : stage === 4 ? "now" : "later"}>
+            {/* 5 Handover */}
+            <FlowStep n={5} title="Upload the signed handover" state={inst.handover ? "done" : stage === 5 ? "now" : "later"}>
               {inst.handover ? (
                 <View style={{ gap: 2 }}>
                   <Text style={styles.hint}>Accepted by {inst.handover.accepted_by_name} on {inst.handover.handover_date}</Text>
                   {inst.handover.acceptance_notes ? <Text style={styles.hint}>{inst.handover.acceptance_notes}</Text> : null}
                 </View>
-              ) : stage === 4 && canAct ? (
+              ) : stage === 5 && canAct ? (
                 <>
                   <Text style={styles.hint}>Have the client sign the handover sheet, then photograph or pick the signed copy.</Text>
                   <Button title="Record handover" icon="document-text-outline" onPress={() => setHandoverForm({ name: "", notes: "", doc: null, docName: "" })} />
@@ -233,9 +259,9 @@ export default function InstallationScreen() {
               ) : null}
             </FlowStep>
 
-            {/* 5 Check out */}
-            <FlowStep n={5} title="Check out" state={stage === 5 && !here ? "done" : stage === 5 ? "now" : "later"}>
-              {stage === 5 && here ? <Button title="Check out of the site" icon="log-out-outline" variant="secondary" loading={busy === "presence"} onPress={clockOut} /> : null}
+            {/* 6 Check out */}
+            <FlowStep n={6} title="Check out" state={stage === 6 && !here ? "done" : stage === 6 ? "now" : "later"}>
+              {stage === 6 && here ? <Button title="Check out of the site" icon="log-out-outline" variant="secondary" loading={busy === "presence"} onPress={clockOut} /> : null}
             </FlowStep>
           </Section>
 
