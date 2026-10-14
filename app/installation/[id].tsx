@@ -208,12 +208,13 @@ export default function InstallationScreen() {
 
             {/* 3 Steps */}
             <FlowStep n={3} title="Installation steps" state={allDone ? "done" : stage === 3 ? "now" : "later"}>
-              {workSteps.map((s) => {
+              {workSteps.map((s, idx) => {
                 const tone = STEP_TONE[s.status] ?? STEP_TONE.not_started;
                 return (
                   <View key={s.id} style={styles.step}>
                     <View style={styles.stepTop}>
-                      <Text style={styles.stepName}>{s.step_number}. {s.custom_label || s.step_type_display}</Text>
+                      {/* Numbered by position, as the desktop numbers them. */}
+                      <Text style={styles.stepName}>{idx + 1}. {s.custom_label || s.step_type_display}</Text>
                       <Pill label={busy === s.id ? "…" : s.status_display} fg={tone.fg} bg={tone.bg} />
                     </View>
                     {canAct ? (
