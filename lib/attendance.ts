@@ -34,14 +34,25 @@ async function whereami() {
 /** Clock in at a site. The job's buttons open only once this has happened there. */
 export async function checkIn(site: string, note = ""): Promise<Presence> {
   const where = await whereami();
-  await api.post("/attendance/records/", { check_type: "check_in", site, note, ...where });
-  return getPresence();
+  const { data } = await api.post("/attendance/records/", { check_type: "check_in", site, note, ...where });
+  // The record just saved already says where the person is. If reading it
+  // back fails, the check-in still happened: report it as done rather than
+  // as an error, which had people tapping again and checking in twice.
+  try {
+    return await getPresence();
+  } catch {
+    return { checked_in: true, site, site_name: data?.site_name ?? null, since: data?.created_at ?? null };
+  }
 }
 
 export async function checkOut(site: string | null, note = ""): Promise<Presence> {
   const where = await whereami();
   await api.post("/attendance/records/", { check_type: "check_out", site, note, ...where });
-  return getPresence();
+  try {
+    return await getPresence();
+  } catch {
+    return { checked_in: false, site: null, site_name: null, since: null };
+  }
 }
 
 /** True when the person is clocked in at this very site. */
