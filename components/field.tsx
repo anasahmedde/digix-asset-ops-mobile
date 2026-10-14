@@ -29,10 +29,12 @@ export function Wash({ children, style }: { children: ReactNode; style?: ViewSty
  * when they are clocked in here; the card says so and offers the clock.
  */
 export function PresenceCard({
-  presence, site, siteName, mine, busy, onCheckIn, onCheckOut,
+  presence, site, siteName, mine, busy, onCheckIn, onCheckOut, lockedReason,
 }: {
   presence: Presence | null; site: string | null | undefined; siteName: string;
   mine: boolean; busy?: boolean; onCheckIn: () => void; onCheckOut: () => void;
+  /** Why checking in is not open yet, when something has to come first. */
+  lockedReason?: string;
 }) {
   if (!mine) {
     return (
@@ -49,6 +51,14 @@ export function PresenceCard({
         <Ionicons name="location" size={18} color={colors.success} />
         <Text style={[styles.gateText, { color: "#0b6e44" }]}>Checked in at {siteName}</Text>
         <Button title="Check out" small variant="secondary" loading={busy} onPress={onCheckOut} />
+      </View>
+    );
+  }
+  if (lockedReason) {
+    return (
+      <View style={[styles.gate, { backgroundColor: colors.secondary }]}>
+        <Ionicons name="lock-closed-outline" size={18} color={colors.textMuted} />
+        <Text style={styles.gateText}>{lockedReason}</Text>
       </View>
     );
   }

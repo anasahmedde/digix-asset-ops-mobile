@@ -14,13 +14,16 @@ import { Presence, checkIn, checkOut, getPresence, onSite } from "@/lib/attendan
 import { mediaUrl } from "@/lib/format";
 import { getCurrentLocation, requestForegroundLocationPermission } from "@/lib/location";
 import { asUpload, takePhoto } from "@/lib/photos";
+import * as SecureStore from "@/lib/secure-store";
 import { toast } from "@/lib/toast";
 import { getCurrentUser } from "@/lib/user";
 
 /**
- * A maintenance job on the phone, start to finish: check in, Before photo,
- * start, parts if needed, the work, After photo, hand it in for review,
- * check out. Unused parts go back to the store from the same screen.
+ * A maintenance job on the phone, start to finish: the components it needs
+ * (asked for, approved, issued - before setting off), check in, scan the
+ * asset, Before photo, start, the work, After photo, hand it in for review,
+ * check out, and back at the store say what was used: the rest goes to
+ * receiving.
  */
 interface Schedule {
   id: string; title: string; description?: string; maintenance_type: "preventive" | "corrective"; status: string; status_display: string;
@@ -40,6 +43,7 @@ interface Part {
   id: string; what: string; unit: string; item: string | null; unit_type: string | null; quantity_requested: number; quantity_approved: number | null;
   status: string; status_display: string; issue_status: string | null; quantity_issued: number | null; issued_serials: string[];
   quantity_used: number | null; quantity_returned: number | null; visit: string | null; decision_note?: string;
+  return_reference?: string | null;
 }
 interface StockPick { id: string; name: string; code: string; unit?: string; unique: boolean }
 
@@ -61,7 +65,16 @@ export default function JobScreen() {
   const [notes, setNotes] = useState("");
   const [scan, setScan] = useState(false);
   const [partForm, setPartForm] = useState<{ q: string; results: StockPick[]; pick: StockPick | null; qty: string; reason: string } | null>(null);
-  const [finish, setFinish] = useState<{ resolved: boolean | null; used: Record<string, string>; back: Record<string, string[]> } | null>(null);
+  const [finish, setFinish] = useState<{ resolved: boolean | null } | null>(null);
+  const [giveBack, setGiveBack] = useState<{ used: Record<string, string>; back: Record<string, string[]> } | null>(null);
+  // "No components needed" for this visit. The server has nothing to keep it
+  // on - nothing asked for is what it records - so the phone remembers it.
+  const [noneNeeded, setNoneNeeded] = useState(false);
+  const openVisitId = [...visits].reverse().find((v) => v.status !== "completed" && v.status !== "skipped")?.id ?? null;
+  useEffect(() => {
+    if (!openVisitId) return;
+    SecureStore.getItem(`parts-none-${openVisitId}`).then((v) => setNoneNeeded(v === "1")).catch(() => {});
+  }, [openVisitId]);
 
   const load = useCallback(async () => {
     try {
@@ -114,9 +127,26 @@ export default function JobScreen() {
   const started = current?.status === "in_progress";
   const before = !!current?.has_before_photo;
   const after = !!current?.has_after_photo;
-  const stage = !here && !closed ? 1 : !verified ? 2 : !before ? 3 : !started && !awaiting ? 4 : !after && !awaiting ? 5 : !awaiting ? 6 : here ? 7 : 8;
   const myParts = parts.filter((p) => !current || !p.visit || p.visit === current.id);
+  // Issued and not yet accounted for: what goes back once the work is done.
   const issued = myParts.filter((p) => p.quantity_issued && p.quantity_issued > 0 && p.quantity_used == null);
+  const liveParts = myParts.filter((p) => p.status !== "cancelled");
+  // Asked for and not in hand yet: not approved, or approved and not issued.
+  const waitingParts = liveParts.filter((p) => p.status === "requested" || (p.status === "approved" && !(p.quantity_issued && p.quantity_issued > 0)));
+  const hadIssued = myParts.some((p) => (p.quantity_issued ?? 0) > 0);
+  // Step 1 is answered when nothing more is coming: none needed, or every
+  // line approved and issued (or turned down). A visit already under way
+  // is not held back by a question asked after it started.
+  const componentsDone = closed || started || awaiting || ((liveParts.length > 0 || noneNeeded) && waitingParts.length === 0);
+  const stage = closed ? 0
+    : awaiting ? (here ? 8 : issued.length ? 9 : 10)
+    : !componentsDone ? 1
+    : !here ? 2
+    : !verified ? 3
+    : !before ? 4
+    : !started ? 5
+    : !after ? 6
+    : 7;
 
   // -- actions
   const clockIn = () => run("presence", async () => { if (!job.site) throw new Error("no site"); setPresence(await checkIn(job.site)); }, "This job has no site to check in at");
@@ -136,6 +166,7 @@ export default function JobScreen() {
     } catch { /* no fix, no matter */ }
     await api.post(`/maintenance/visits/${current.id}/photos/`, fd, { headers: { "Content-Type": "multipart/form-data" } });
   }, "Photo upload failed");
+  const tone = (s: string) => PART_TONE[s] ?? { fg: colors.textMuted, bg: colors.secondary };
   const verify = (code: string) => {
     setScan(false);
     run("verify", async () => {
@@ -187,23 +218,66 @@ export default function JobScreen() {
     if (!finish || !current) return;
     if (job.maintenance_type === "corrective" && finish.resolved === null) { toast.error("Is the fault fixed?"); return; }
     if (finish.resolved === false && !notes.trim()) { toast.error("Say what is still wrong in the notes"); return; }
-    for (const p of issued) {
-      const u = Number(finish.used[p.id] ?? "");
-      if (Number.isNaN(u) || finish.used[p.id] === undefined || finish.used[p.id] === "") { toast.error(`How many of ${p.what} were used?`); return; }
-      if (u > (p.quantity_issued ?? 0)) { toast.error(`${p.what}: only ${p.quantity_issued} were issued`); return; }
-    }
     const f = finish;
     setFinish(null);
     run("complete", async () => {
       const body: Record<string, unknown> = { remarks: notes.trim() };
       if (job.maintenance_type === "corrective") body.resolved = f.resolved;
-      if (issued.length) body.parts_settlement = issued.map((p) => ({ part_request: p.id, used: Number(f.used[p.id]), serials: p.unit_type ? f.back[p.id] ?? [] : [] }));
-      const { data } = await api.post(`/maintenance/visits/${current.id}/complete/`, body);
-      toast.success(data.return_grn ? `Sent for review · return ${data.return_grn}` : "Sent for review");
+      await api.post(`/maintenance/visits/${current.id}/complete/`, body);
+      toast.success(issued.length ? "Sent for review · return the unused components after you check out" : "Sent for review");
     }, "Could not complete the visit");
   };
+  // Back from site: how much of each issued component was used. The rest
+  // goes to the store's receiving under its own reference.
+  const returnParts = () => {
+    if (!giveBack || !current) return;
+    for (const p of issued) {
+      const raw = giveBack.used[p.id];
+      const u = Number(raw ?? "");
+      if (raw === undefined || raw === "" || Number.isNaN(u)) { toast.error(`How many of ${p.what} did you use?`); return; }
+      if (u < 0 || u > (p.quantity_issued ?? 0)) { toast.error(`${p.what}: ${p.quantity_issued} were issued`); return; }
+      const back = (p.quantity_issued ?? 0) - u;
+      if (p.unit_type && back > 0 && (giveBack.back[p.id] ?? []).length !== back) { toast.error(`${p.what}: tap the ${back} serial number${back > 1 ? "s" : ""} going back`); return; }
+    }
+    const g = giveBack;
+    setGiveBack(null);
+    run("return", async () => {
+      const { data } = await api.post(`/maintenance/visits/${current.id}/return-parts/`, {
+        parts_settlement: issued.map((p) => ({ part_request: p.id, used: Number(g.used[p.id]), serials: p.unit_type ? g.back[p.id] ?? [] : [] })),
+      });
+      toast.success(data.return_grn ? `Going back to the store · ${data.return_grn}` : "Recorded: everything was used");
+    }, "Could not record the return");
+  };
+  const sayNone = (none: boolean) => {
+    if (!current) return;
+    setNoneNeeded(none);
+    const key = `parts-none-${current.id}`;
+    (none ? SecureStore.setItem(key, "1") : SecureStore.deleteItem(key)).catch(() => {});
+  };
+  const withdraw = (p: Part) => run(p.id, async () => {
+    await api.delete(`/maintenance/part-requests/${p.id}/`);
+    toast.success("Request withdrawn");
+  }, "Could not withdraw the request");
+  const openPartForm = () => setPartForm({ q: "", results: [], pick: null, qty: "1", reason: "" });
+  const lineState = (p: Part) => (
+    p.status === "requested" ? "Waiting for approval"
+      : p.status === "rejected" ? `Not approved${p.decision_note ? ` · ${p.decision_note}` : ""}`
+        : p.status === "cancelled" ? "Withdrawn"
+          : p.quantity_used != null ? `${p.quantity_used} used · ${p.quantity_returned ?? 0} back to the store${p.return_reference ? ` (${p.return_reference})` : ""}`
+            : (p.quantity_issued ?? 0) > 0 ? `${p.quantity_issued} ${p.unit} issued · in your hands`
+              : "Approved · the store is to issue it"
+  );
+  const lineTone = (p: Part) => (
+    p.status === "requested" ? tone("requested")
+      : p.status === "rejected" || p.status === "cancelled" ? tone(p.status)
+        : (p.quantity_issued ?? 0) > 0 ? { fg: "#047857", bg: colors.successSoft }
+          : tone("approved")
+  );
+  const lineLabel = (p: Part) => (
+    p.status === "requested" ? "Asked" : p.status === "rejected" ? "Rejected" : p.status === "cancelled" ? "Withdrawn"
+      : p.quantity_used != null ? "Settled" : (p.quantity_issued ?? 0) > 0 ? "Issued" : "Approved"
+  );
 
-  const tone = (s: string) => PART_TONE[s] ?? { fg: colors.textMuted, bg: colors.secondary };
 
   return (
     <Wash>
@@ -226,16 +300,58 @@ export default function JobScreen() {
           </Card>
           {job.ticket ? <Pressable onPress={() => router.push(`/ticket/${job.ticket}`)} style={styles.linkRow}><Ionicons name="reader-outline" size={15} color={colors.primary} /><Text style={styles.link}>Open ticket {job.ticket_number}</Text></Pressable> : null}
 
-          <PresenceCard presence={presence} site={job.site} siteName={job.site_name ?? "the site"} mine={mine} busy={busy === "presence"} onCheckIn={clockIn} onCheckOut={clockOut} />
+          <PresenceCard
+            presence={presence} site={job.site} siteName={job.site_name ?? "the site"} mine={mine} busy={busy === "presence"}
+            onCheckIn={clockIn} onCheckOut={clockOut}
+            lockedReason={!componentsDone && !here ? "Sort out the components for this job first (step 1) - check-in opens once they are in your hands." : undefined}
+          />
           <ScanSheet open={scan} expect={job.device_code ?? ""} onScan={verify} onClose={() => setScan(false)} />
 
           {closed ? <Note>This job is {job.status_display.toLowerCase()}.</Note> : null}
           {current?.review_decision === "unresolved" && current.review_note ? <Note tone="bad">Sent back: {current.review_note}</Note> : null}
 
           <Section title="The visit, step by step">
-            <FlowStep n={1} title="Check in at the site" state={here || closed ? "done" : "now"} />
-            <FlowStep n={2} title="Scan the asset's label" state={verified || closed ? "done" : stage === 2 ? "now" : "later"}>
-              {stage === 2 && mine && here && current ? (
+            <FlowStep n={1} title="Components for this job" state={componentsDone ? "done" : "now"}>
+              {liveParts.map((p) => (
+                <View key={p.id} style={styles.part}>
+                  <View style={{ flex: 1 }}>
+                    <Text style={styles.partName}>{p.what} · {p.quantity_approved ?? p.quantity_requested} {p.unit}</Text>
+                    <Text style={styles.hint}>{lineState(p)}</Text>
+                  </View>
+                  {mine && p.status === "requested" && !closed ? (
+                    <Pressable onPress={() => withdraw(p)} hitSlop={8}><Text style={styles.withdraw}>Withdraw</Text></Pressable>
+                  ) : (
+                    <Pill label={lineLabel(p)} fg={lineTone(p).fg} bg={lineTone(p).bg} />
+                  )}
+                </View>
+              ))}
+              {mine && !closed && !awaiting && current ? (
+                liveParts.length === 0 && !noneNeeded && !started ? (
+                  <>
+                    <Text style={styles.hint}>Do you need any components for this job? Ask before you set off: your supervisor approves, the store issues, and check-in opens once they are in your hands.</Text>
+                    <View style={{ flexDirection: "row", gap: 8 }}>
+                      <Button title="Yes, request" small icon="add" style={{ flex: 1 }} onPress={openPartForm} />
+                      <Button title="None needed" small variant="secondary" style={{ flex: 1 }} onPress={() => sayNone(true)} />
+                    </View>
+                  </>
+                ) : liveParts.length === 0 && noneNeeded ? (
+                  <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
+                    <Text style={[styles.hint, { flex: 1 }]}>No components needed.</Text>
+                    {!started ? <Button title="I need some" small variant="ghost" onPress={() => { sayNone(false); openPartForm(); }} /> : null}
+                  </View>
+                ) : (
+                  <Button title="Request another" small variant="secondary" icon="add" onPress={openPartForm} />
+                )
+              ) : null}
+              {waitingParts.length > 0 && !started && !awaiting && !closed ? (
+                <Note tone="warn">Waiting on {waitingParts.length === 1 ? "this request" : `${waitingParts.length} requests`}. Pull down to refresh; you are notified when it is approved and when the store issues it.</Note>
+              ) : null}
+            </FlowStep>
+            <FlowStep n={2} title="Check in at the site" state={here || awaiting || closed ? "done" : stage === 2 ? "now" : "later"}>
+              {stage === 1 && mine ? <Text style={styles.hint}>Opens once the components are sorted.</Text> : null}
+            </FlowStep>
+            <FlowStep n={3} title="Scan the asset's label" state={verified || closed ? "done" : stage === 3 ? "now" : "later"}>
+              {stage === 3 && mine && here && current ? (
                 <>
                   <Text style={styles.hint}>Point the camera at the QR label on {job.device_code}. Your buttons open once it matches.</Text>
                   <Button title="Scan asset QR" icon="qr-code-outline" loading={busy === "verify"} onPress={() => setScan(true)} />
@@ -243,14 +359,13 @@ export default function JobScreen() {
               ) : null}
               {verified && current?.asset_verified_at && job.device ? <Text style={styles.hint}>{job.device_code} confirmed on site.</Text> : null}
             </FlowStep>
-            <FlowStep n={3} title="Before photo" state={before ? "done" : stage === 3 ? "now" : "later"}>
-              {stage === 3 && canAct ? <Button title="Take the Before photo" icon="camera" loading={busy === "before"} onPress={() => photo("before")} /> : null}
+            <FlowStep n={4} title="Before photo" state={before ? "done" : stage === 4 ? "now" : "later"}>
+              {stage === 4 && canAct ? <Button title="Take the Before photo" icon="camera" loading={busy === "before"} onPress={() => photo("before")} /> : null}
             </FlowStep>
-            <FlowStep n={4} title="Start work" state={started || awaiting ? "done" : stage === 4 ? "now" : "later"}>
-              {stage === 4 && canAct ? <Button title="Start work" icon="play" loading={busy === "start"} onPress={start} /> : null}
-              {stage === 4 && canAct && myParts.some((p) => p.status === "approved" && !p.quantity_issued) ? <Note tone="warn">A requested part is not in your hands yet; the store issues it first.</Note> : null}
+            <FlowStep n={5} title="Start work" state={started || awaiting ? "done" : stage === 5 ? "now" : "later"}>
+              {stage === 5 && canAct ? <Button title="Start work" icon="play" loading={busy === "start"} onPress={start} /> : null}
             </FlowStep>
-            <FlowStep n={5} title="Work and notes" state={after || awaiting ? "done" : stage === 5 ? "now" : "later"}>
+            <FlowStep n={6} title="Work and notes" state={after || awaiting ? "done" : stage === 6 ? "now" : "later"}>
               {(started || awaiting) ? (
                 <>
                   <TextInput style={[styles.input, { height: 84, textAlignVertical: "top" }]} multiline editable={canAct && started} placeholder="What was found, what was done" placeholderTextColor={colors.textLight} value={notes} onChangeText={setNotes} />
@@ -259,35 +374,28 @@ export default function JobScreen() {
                 </>
               ) : null}
             </FlowStep>
-            <FlowStep n={6} title="Send for review" state={awaiting || closed ? "done" : stage === 6 ? "now" : "later"}>
-              {stage === 6 && canAct ? <Button title="End work and send for review" icon="paper-plane-outline" variant="success" onPress={() => setFinish({ resolved: null, used: {}, back: {} })} /> : null}
+            <FlowStep n={7} title="Send for review" state={awaiting || closed ? "done" : stage === 7 ? "now" : "later"}>
+              {stage === 7 && canAct ? <Button title="End work and send for review" icon="paper-plane-outline" variant="success" onPress={() => setFinish({ resolved: null })} /> : null}
               {awaiting ? <Text style={styles.hint}>With your supervisor for review.</Text> : null}
             </FlowStep>
-            <FlowStep n={7} title="Check out" state={stage === 8 ? "done" : stage === 7 ? "now" : "later"}>
-              {stage === 7 && here ? <Button title="Check out of the site" icon="log-out-outline" variant="secondary" loading={busy === "presence"} onPress={clockOut} /> : null}
+            <FlowStep n={8} title="Check out" state={stage > 8 || (closed && !here) ? "done" : stage === 8 ? "now" : "later"}>
+              {stage === 8 && here ? <Button title="Check out of the site" icon="log-out-outline" variant="secondary" loading={busy === "presence"} onPress={clockOut} /> : null}
             </FlowStep>
-          </Section>
-
-          {/* Parts */}
-          <Section
-            title="Parts"
-            hint="You ask, your supervisor approves, the store issues. Leftovers go back when you finish."
-            action={canAct && !awaiting ? <Button title="Request" small icon="add" onPress={() => setPartForm({ q: "", results: [], pick: null, qty: "1", reason: "" })} /> : undefined}
-          >
-            {myParts.length === 0 ? <Text style={styles.muted}>No parts asked for.</Text> : myParts.map((p) => (
-              <View key={p.id} style={styles.part}>
-                <View style={{ flex: 1 }}>
-                  <Text style={styles.partName}>{p.what}</Text>
-                  <Text style={styles.hint}>
-                    {p.quantity_requested} {p.unit} requested
-                    {p.quantity_issued ? ` · ${p.quantity_issued} issued` : p.status === "approved" ? " · approved, with the store" : ""}
-                    {p.quantity_used != null ? ` · ${p.quantity_used} used, ${p.quantity_returned ?? 0} returned` : ""}
-                    {p.decision_note ? ` · ${p.decision_note}` : ""}
-                  </Text>
-                </View>
-                <Pill label={p.status_display} fg={tone(p.status).fg} bg={tone(p.status).bg} />
-              </View>
-            ))}
+            {hadIssued ? (
+              <FlowStep n={9} title="Return unused components" state={issued.length === 0 ? "done" : stage === 9 ? "now" : "later"}>
+                {issued.length > 0 && mine && current && (started || awaiting) ? (
+                  <>
+                    <Text style={styles.hint}>
+                      {stage === 9
+                        ? "Back at the store: say how much of each issued component you used. The rest goes to the store's receiving."
+                        : "After you check out, say what you used; the rest goes back to the store."}
+                    </Text>
+                    {stage === 9 ? <Button title="Return unused components" icon="return-down-back-outline" loading={busy === "return"} onPress={() => setGiveBack({ used: {}, back: {} })} /> : null}
+                  </>
+                ) : null}
+                {issued.length === 0 ? <Text style={styles.hint}>Accounted for: see the lines in step 1.</Text> : null}
+              </FlowStep>
+            ) : null}
           </Section>
 
           {/* Photos */}
@@ -362,36 +470,52 @@ export default function JobScreen() {
                   <Button title="Still faulty" small style={{ flex: 1 }} variant={finish?.resolved === false ? "danger" : "secondary"} icon="close" onPress={() => setFinish((f) => f && { ...f, resolved: false })} />
                 </View>
               ) : null}
-              {issued.length ? (
-                <View style={{ gap: 8 }}>
-                  <Text style={styles.hint}>How many of each issued part were used? The rest goes back to the store for inspection.</Text>
-                  {issued.map((p) => (
-                    <View key={p.id} style={{ gap: 6 }}>
-                      <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
-                        <Text style={[styles.partName, { flex: 1 }]}>{p.what} · {p.quantity_issued} issued</Text>
-                        <TextInput style={[styles.input, { width: 80 }]} keyboardType="number-pad" placeholder="used" placeholderTextColor={colors.textLight} value={finish?.used[p.id] ?? ""} onChangeText={(t) => setFinish((f) => f && { ...f, used: { ...f.used, [p.id]: t } })} />
-                      </View>
-                      {p.unit_type && p.issued_serials?.length ? (
-                        <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 6 }}>
-                          {p.issued_serials.map((sn) => {
-                            const on = (finish?.back[p.id] ?? []).includes(sn);
-                            return (
-                              <Pressable key={sn} onPress={() => setFinish((f) => f && { ...f, back: { ...f.back, [p.id]: on ? (f.back[p.id] ?? []).filter((x) => x !== sn) : [...(f.back[p.id] ?? []), sn] } })} style={[styles.serial, on && styles.serialOn]}>
-                                <Text style={[styles.hint, on && { color: "#fff" }]}>{on ? "↩ " : ""}{sn}</Text>
-                              </Pressable>
-                            );
-                          })}
-                          <Text style={styles.hint}>tap the serials going back</Text>
-                        </View>
-                      ) : null}
-                    </View>
-                  ))}
-                </View>
-              ) : null}
-              <Text style={styles.hint}>Your notes go in as the remarks. The After photo is already on the visit.</Text>
+              <Text style={styles.hint}>Your notes go in as the remarks. The After photo is already on the visit.{issued.length ? " You return the unused components after you check out." : ""}</Text>
               <View style={styles.modalActions}>
                 <Button title="Cancel" small variant="secondary" onPress={() => setFinish(null)} />
                 <Button title="Send for review" small variant="success" onPress={complete} />
+              </View>
+            </View>
+          </View>
+        </Modal>
+
+        {/* Return unused components */}
+        <Modal visible={!!giveBack} transparent animationType="slide" onRequestClose={() => setGiveBack(null)}>
+          <View style={styles.modalWrap}>
+            <View style={styles.modalCard}>
+              <Text style={styles.modalTitle}>Return unused components</Text>
+              <Text style={styles.hint}>How many of each did you use on this job? Whatever is left goes to the store's receiving, to be checked in.</Text>
+              {issued.map((p) => {
+                const used = Number(giveBack?.used[p.id] ?? "");
+                const back = giveBack?.used[p.id] !== undefined && giveBack?.used[p.id] !== "" && !Number.isNaN(used) ? Math.max(0, (p.quantity_issued ?? 0) - used) : null;
+                return (
+                  <View key={p.id} style={{ gap: 6 }}>
+                    <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
+                      <View style={{ flex: 1 }}>
+                        <Text style={styles.partName}>{p.what}</Text>
+                        <Text style={styles.hint}>{p.quantity_issued} {p.unit} issued{back !== null ? ` · ${back} going back` : ""}</Text>
+                      </View>
+                      <TextInput style={[styles.input, { width: 86 }]} keyboardType="number-pad" placeholder="used" placeholderTextColor={colors.textLight} value={giveBack?.used[p.id] ?? ""} onChangeText={(t) => setGiveBack((g) => g && { ...g, used: { ...g.used, [p.id]: t } })} />
+                    </View>
+                    {p.unit_type && p.issued_serials?.length && back ? (
+                      <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 6 }}>
+                        {p.issued_serials.map((sn) => {
+                          const on = (giveBack?.back[p.id] ?? []).includes(sn);
+                          return (
+                            <Pressable key={sn} onPress={() => setGiveBack((g) => g && { ...g, back: { ...g.back, [p.id]: on ? (g.back[p.id] ?? []).filter((x) => x !== sn) : [...(g.back[p.id] ?? []), sn] } })} style={[styles.serial, on && styles.serialOn]}>
+                              <Text style={[styles.hint, on && { color: "#fff" }]}>{on ? "↩ " : ""}{sn}</Text>
+                            </Pressable>
+                          );
+                        })}
+                        <Text style={styles.hint}>tap the serials going back</Text>
+                      </View>
+                    ) : null}
+                  </View>
+                );
+              })}
+              <View style={styles.modalActions}>
+                <Button title="Cancel" small variant="secondary" onPress={() => setGiveBack(null)} />
+                <Button title="Return to the store" small onPress={returnParts} />
               </View>
             </View>
           </View>
@@ -423,4 +547,5 @@ const styles = StyleSheet.create({
   result: { paddingVertical: 8, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: colors.border },
   serial: { borderRadius: radius.pill, paddingHorizontal: 10, paddingVertical: 5, backgroundColor: colors.secondary },
   serialOn: { backgroundColor: colors.primary },
+  withdraw: { fontSize: font.sm, fontWeight: "700", color: colors.danger },
 });
