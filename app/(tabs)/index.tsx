@@ -129,7 +129,7 @@ export default function TodayScreen() {
                 <View style={[styles.jobIcon, { backgroundColor: colors.warningSoft }]}><Ionicons name="construct-outline" size={18} color="#b45309" /></View>
                 <View style={{ flex: 1 }}>
                   <Text style={styles.jobTitle} numberOfLines={1}>{j.device_code ? `${j.device_code} · ` : ""}{j.title}</Text>
-                  <Text style={styles.jobSub} numberOfLines={1}>{j.maintenance_type === "corrective" ? "Fault" : "Round"} at {j.site_name ?? "site"}{j.next_due ? ` · due ${j.next_due}` : ""}</Text>
+                  <Text style={styles.jobSub} numberOfLines={1}>{j.maintenance_type === "corrective" ? "Corrective" : "Preventive"} · {j.site_name ?? "No site"}{j.next_due ? ` · due ${j.next_due}` : ""}</Text>
                 </View>
                 <Pill label={j.status_display} fg={j.status === "in_process" ? "#b45309" : colors.textMuted} bg={j.status === "in_process" ? colors.warningSoft : colors.secondary} />
               </Card>

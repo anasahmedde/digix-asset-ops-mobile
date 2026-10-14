@@ -38,8 +38,8 @@ interface Installation {
 }
 
 const STEP_TYPES = [
-  ["survey", "Survey"], ["wiring", "Wiring"], ["structure", "Metal structure"], ["programming", "Programming"],
-  ["testing", "Testing and commissioning"], ["other", "Other"],
+  ["survey", "Survey"], ["wiring", "Wiring"], ["structure", "Metal Structure"], ["programming", "Programming"],
+  ["testing", "Testing & Commissioning"], ["other", "Other"],
 ] as const;
 const STEP_TONE: Record<string, { fg: string; bg: string }> = {
   not_started: { fg: colors.textMuted, bg: colors.secondary },
@@ -113,8 +113,8 @@ export default function InstallationScreen() {
   const stage: 1 | 2 | 3 | 4 | 5 | 6 = !here && !inst.completed_at ? 1 : !verified && !inst.completed_at ? 2 : !allDone ? 3 : !isLive ? 4 : !inst.handover ? 5 : 6;
 
   // -- the actions
-  const setStep = (s: Step, status: string) => run(s.id, async () => { await api.patch(`/sites/installation-steps/${s.id}/`, { status }); }, "Could not update the step");
-  const removeStep = (s: Step) => Alert.alert("Remove step?", s.custom_label || s.step_type_display, [
+  const setStep = (s: Step, status: string) => run(s.id, async () => { await api.patch(`/sites/installation-steps/${s.id}/`, { status }); }, "Failed to update step");
+  const removeStep = (s: Step) => Alert.alert("Remove this step from the checklist?", s.custom_label || s.step_type_display, [
     { text: "Keep", style: "cancel" },
     { text: "Remove", style: "destructive", onPress: () => run(s.id, async () => { await api.delete(`/sites/installation-steps/${s.id}/`); }, "Could not remove the step") },
   ]);
@@ -123,7 +123,7 @@ export default function InstallationScreen() {
     const body = { installation: inst.id, step_type: stepForm.type, custom_label: stepForm.type === "other" ? stepForm.label.trim() : stepForm.label.trim() || null, step_number: workSteps.length + 1 };
     if (stepForm.type === "other" && !body.custom_label) { toast.error("Name the step"); return; }
     setStepForm(null);
-    run("add", async () => { await api.post("/sites/installation-steps/", body); }, "Could not add the step");
+    run("add", async () => { await api.post("/sites/installation-steps/", body); toast.success("Step added"); }, "Could not add the step");
   };
   const verify = (code: string) => {
     setScan(false);
@@ -138,8 +138,8 @@ export default function InstallationScreen() {
     const fd = new FormData();
     fd.append("photos", asUpload(a, "live.jpg"));
     await api.post(`/sites/installations/${inst.id}/activate/`, fd, { headers: { "Content-Type": "multipart/form-data" } });
-    toast.success("Asset is live");
-  }, "Could not mark the asset active");
+    toast.success("Asset marked Active — the photo is on the asset too");
+  }, "Failed to activate the asset");
   const submitHandover = () => {
     if (!handoverForm) return;
     if (!handoverForm.name.trim()) { toast.error("Who accepted the handover?"); return; }
@@ -153,7 +153,7 @@ export default function InstallationScreen() {
       fd.append("signed_document", f.doc as Blob);
       await api.post(`/sites/installations/${inst.id}/handover/`, fd, { headers: { "Content-Type": "multipart/form-data" } });
       toast.success("Handover recorded");
-    }, "Handover failed");
+    }, "Failed to record handover");
   };
   const clockIn = () => run("presence", async () => { setPresence(await checkIn(inst.site)); }, "Could not check in");
   const clockOut = () => run("presence", async () => { setPresence(await checkOut(inst.site)); toast.success("Checked out"); }, "Could not check out");
@@ -170,13 +170,13 @@ export default function InstallationScreen() {
               <Text style={styles.code}>{inst.device_code}</Text>
               <Text style={styles.sub}>{inst.device_name}</Text>
             </View>
-            {inst.completed_at ? <Pill label="Handed over" fg="#047857" bg={colors.successSoft} /> : <Pill label={`${inst.progress}%`} fg={colors.primary} bg={colors.primarySoft} />}
+            {inst.completed_at ? <Pill label="Completed" fg="#047857" bg={colors.successSoft} /> : <Pill label={`${inst.progress}%`} fg={colors.primary} bg={colors.primarySoft} />}
           </View>
           <Card style={{ marginTop: spacing.md, gap: 0 }}>
             <Row label="Site" value={inst.site_name + (inst.position_label ? ` · ${inst.position_label}` : "")} />
             <Row label="Client" value={inst.client_names?.join(", ") || "—"} />
             <Row label="Installer" value={inst.installed_by_name || "Not assigned"} />
-            <Row label="Due" value={inst.due_date || "—"} />
+            <Row label="Due Date" value={inst.due_date || "—"} />
           </Card>
 
           <PresenceCard presence={presence} site={inst.site} siteName={inst.site_name} mine={mine} busy={busy === "presence"} onCheckIn={clockIn} onCheckOut={clockOut} />
@@ -198,7 +198,7 @@ export default function InstallationScreen() {
             </FlowStep>
 
             {/* 3 Steps */}
-            <FlowStep n={3} title="Installation steps" state={allDone ? "done" : stage === 3 ? "now" : "later"}>
+            <FlowStep n={3} title="Installation Steps" state={allDone ? "done" : stage === 3 ? "now" : "later"}>
               {workSteps.map((s, idx) => {
                 const tone = STEP_TONE[s.status] ?? STEP_TONE.not_started;
                 return (
@@ -221,23 +221,23 @@ export default function InstallationScreen() {
                   </View>
                 );
               })}
-              {canAct && !allDone ? <Button title="Add a step" small variant="secondary" icon="add" onPress={() => setStepForm({ type: "other", label: "" })} /> : null}
+              {canAct && !allDone ? <Button title="Add Step" small variant="secondary" icon="add" onPress={() => setStepForm({ type: "other", label: "" })} /> : null}
               {!canAct && mine && !here && !inst.completed_at ? <Note tone="warn">Check in at {inst.site_name} to work the steps.</Note> : null}
               {!canAct && mine && here && !verified && !inst.completed_at ? <Note tone="warn">Scan the label on {inst.device_code} to open the steps.</Note> : null}
             </FlowStep>
 
             {/* 4 Mark active */}
-            <FlowStep n={4} title="Mark the asset active" state={isLive ? "done" : stage === 4 ? "now" : "later"}>
+            <FlowStep n={4} title="Active" state={isLive ? "done" : stage === 4 ? "now" : "later"}>
               {stage === 4 && canAct ? (
                 <>
-                  <Text style={styles.hint}>Take a photo of the asset running. That photo is the record that it is live.</Text>
-                  <Button title="Photo and mark active" icon="camera" loading={busy === "activate"} onPress={activate} />
+                  <Text style={styles.hint}>Mark the asset live, with a photo of it running.</Text>
+                  <Button title="Mark Active" icon="camera" loading={busy === "activate"} onPress={activate} />
                 </>
               ) : null}
             </FlowStep>
 
             {/* 5 Handover */}
-            <FlowStep n={5} title="Upload the signed handover" state={inst.handover ? "done" : stage === 5 ? "now" : "later"}>
+            <FlowStep n={5} title="Handover" state={inst.handover ? "done" : stage === 5 ? "now" : "later"}>
               {inst.handover ? (
                 <View style={{ gap: 2 }}>
                   <Text style={styles.hint}>Accepted by {inst.handover.accepted_by_name} on {inst.handover.handover_date}</Text>
@@ -245,8 +245,8 @@ export default function InstallationScreen() {
                 </View>
               ) : stage === 5 && canAct ? (
                 <>
-                  <Text style={styles.hint}>Have the client sign the handover sheet, then photograph or pick the signed copy.</Text>
-                  <Button title="Record handover" icon="document-text-outline" onPress={() => setHandoverForm({ name: "", notes: "", doc: null, docName: "" })} />
+                  <Text style={styles.hint}>Upload the signed handover document.</Text>
+                  <Button title="Record Handover" icon="document-text-outline" onPress={() => setHandoverForm({ name: "", notes: "", doc: null, docName: "" })} />
                 </>
               ) : null}
             </FlowStep>
@@ -261,7 +261,7 @@ export default function InstallationScreen() {
               signed sheet. Nothing to take here: the installer photographs
               the asset when marking it active, and the sheet at handover. */}
           {inst.photos.length > 0 ? (
-          <Section title="Photos">
+          <Section title="Installation Photos">
               <View style={styles.photoGrid}>
                 {inst.photos.map((p) => (
                   <View key={p.id}>
@@ -278,7 +278,7 @@ export default function InstallationScreen() {
         <Modal visible={!!stepForm} transparent animationType="slide" onRequestClose={() => setStepForm(null)}>
           <View style={styles.modalWrap}>
             <View style={styles.modalCard}>
-              <Text style={styles.modalTitle}>Add a step</Text>
+              <Text style={styles.modalTitle}>Add Step</Text>
               <View style={styles.typeWrap}>
                 {STEP_TYPES.map(([v, l]) => (
                   <Pressable key={v} onPress={() => setStepForm((f) => f && { ...f, type: v })} style={[styles.typeChip, stepForm?.type === v && styles.typeChipOn]}>
@@ -288,14 +288,14 @@ export default function InstallationScreen() {
               </View>
               <TextInput
                 style={styles.input}
-                placeholder={stepForm?.type === "other" ? "Name the step *" : "Label (optional)"}
+                placeholder={stepForm?.type === "other" ? "Name it *" : "Name it (optional)"}
                 placeholderTextColor={colors.textLight}
                 value={stepForm?.label ?? ""}
                 onChangeText={(t) => setStepForm((f) => f && { ...f, label: t })}
               />
               <View style={styles.modalActions}>
                 <Button title="Cancel" small variant="secondary" onPress={() => setStepForm(null)} />
-                <Button title="Add step" small onPress={addStep} />
+                <Button title="Add Step" small onPress={addStep} />
               </View>
             </View>
           </View>
@@ -305,10 +305,11 @@ export default function InstallationScreen() {
         <Modal visible={!!handoverForm} transparent animationType="slide" onRequestClose={() => setHandoverForm(null)}>
           <View style={styles.modalWrap}>
             <View style={styles.modalCard}>
-              <Text style={styles.modalTitle}>Record the handover</Text>
+              <Text style={styles.modalTitle}>Record Handover</Text>
               <Text style={styles.hint}>The client's signature is the handover: the record cannot be made without the signed sheet.</Text>
-              <TextInput style={styles.input} placeholder="Accepted by (client's name) *" placeholderTextColor={colors.textLight} value={handoverForm?.name ?? ""} onChangeText={(t) => setHandoverForm((f) => f && { ...f, name: t })} />
-              <TextInput style={[styles.input, { height: 76, textAlignVertical: "top" }]} multiline placeholder="Notes" placeholderTextColor={colors.textLight} value={handoverForm?.notes ?? ""} onChangeText={(t) => setHandoverForm((f) => f && { ...f, notes: t })} />
+              <TextInput style={styles.input} placeholder="Accepted By (client-side name) *" placeholderTextColor={colors.textLight} value={handoverForm?.name ?? ""} onChangeText={(t) => setHandoverForm((f) => f && { ...f, name: t })} />
+              <TextInput style={[styles.input, { height: 76, textAlignVertical: "top" }]} multiline placeholder="Acceptance Notes" placeholderTextColor={colors.textLight} value={handoverForm?.notes ?? ""} onChangeText={(t) => setHandoverForm((f) => f && { ...f, notes: t })} />
+              <Text style={styles.hint}>Signed handover document *</Text>
               <View style={{ flexDirection: "row", gap: 8 }}>
                 <Button title="Photograph signed sheet" small variant="secondary" icon="camera-outline" style={{ flex: 1 }} onPress={async () => { const a = await takePhoto(); if (a) setHandoverForm((f) => f && { ...f, doc: asUpload(a, "handover.jpg"), docName: "photo taken" }); }} />
                 <Button title="Pick a file" small variant="secondary" icon="folder-open-outline" style={{ flex: 1 }} onPress={async () => { const a = await pickFromLibrary(); if (a) setHandoverForm((f) => f && { ...f, doc: asUpload(a, "handover.jpg"), docName: a.fileName ?? "file chosen" }); }} />
@@ -316,7 +317,7 @@ export default function InstallationScreen() {
               {handoverForm?.docName ? <Text style={[styles.hint, { color: "#047857" }]}>Attached: {handoverForm.docName}</Text> : null}
               <View style={styles.modalActions}>
                 <Button title="Cancel" small variant="secondary" onPress={() => setHandoverForm(null)} />
-                <Button title="Record handover" small onPress={submitHandover} />
+                <Button title="Record Handover" small onPress={submitHandover} />
               </View>
             </View>
           </View>

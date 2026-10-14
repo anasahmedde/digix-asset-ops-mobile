@@ -1,6 +1,6 @@
 import { Ionicons } from "@expo/vector-icons";
-import { ReactNode } from "react";
-import { ActivityIndicator, Pressable, StyleProp, StyleSheet, View, ViewStyle } from "react-native";
+import { ReactNode, useState } from "react";
+import { ActivityIndicator, Pressable, ScrollView, StyleProp, StyleSheet, TextInput, View, ViewStyle } from "react-native";
 import { Text } from "@/components/text";
 
 import { PRIORITY_TONES, STATUS_TONES, colors, font, radius, shadow, spacing, toneFor } from "@/constants/theme";
@@ -171,6 +171,50 @@ export function Fab({ icon, onPress }: { icon: IconName; onPress?: () => void })
 }
 
 /* ---------- helpers ---------- */
+/* ---------- Field label + Select (the phone's <select>) ---------- */
+export function FieldLabel({ children }: { children: ReactNode }) {
+  return <Text style={styles.fieldLabel}>{children}</Text>;
+}
+/** A dropdown that opens in place. With `searchable`, it filters as you type,
+ *  like the web's SearchSelect, and uses the same words. */
+export function Select({ value, options, placeholder = "Select…", onChange, searchable }: {
+  value: string; options: { id: string; label: string }[]; placeholder?: string;
+  onChange: (id: string) => void; searchable?: boolean;
+}) {
+  const [open, setOpen] = useState(false);
+  const [q, setQ] = useState("");
+  const chosen = options.find((o) => o.id === value);
+  const needle = q.trim().toLowerCase();
+  const shown = needle ? options.filter((o) => o.label.toLowerCase().includes(needle)) : options;
+  return (
+    <View>
+      <Pressable
+        onPress={() => setOpen((o) => !o)}
+        style={[styles.select, open && styles.selectOpen]}
+        accessibilityRole="button"
+        accessibilityState={{ expanded: open }}
+      >
+        <Text style={[styles.selectText, !chosen && { color: colors.textLight }]} numberOfLines={1}>{chosen?.label ?? placeholder}</Text>
+        <Ionicons name={open ? "chevron-up" : "chevron-down"} size={16} color={colors.textMuted} />
+      </Pressable>
+      {open ? (
+        <View style={styles.menu}>
+          {searchable ? (
+            <TextInput style={styles.menuSearch} value={q} onChangeText={setQ} placeholder="Type to search…" placeholderTextColor={colors.textLight} autoFocus />
+          ) : null}
+          <ScrollView style={{ maxHeight: 220 }} keyboardShouldPersistTaps="handled" nestedScrollEnabled>
+            {shown.length === 0 ? <Text style={styles.menuEmpty}>Nothing to choose from</Text> : shown.map((o) => (
+              <Pressable key={o.id} onPress={() => { onChange(o.id); setOpen(false); setQ(""); }} style={[styles.menuItem, o.id === value && styles.menuItemOn]}>
+                <Text style={[styles.menuText, o.id === value && styles.menuTextOn]}>{o.label}</Text>
+              </Pressable>
+            ))}
+          </ScrollView>
+        </View>
+      ) : null}
+    </View>
+  );
+}
+
 export function labelize(v?: string | null): string {
   if (!v) return "—";
   return v.split("_").map((w) => w.charAt(0).toUpperCase() + w.slice(1)).join(" ");
@@ -209,4 +253,15 @@ const styles = StyleSheet.create({
   sectionHeader: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginBottom: spacing.md, marginTop: spacing.sm },
   sectionTitle: { fontSize: font.h3, fontWeight: "800", color: colors.text },
   fab: { position: "absolute", right: spacing.xl, bottom: spacing.xl, width: 56, height: 56, borderRadius: 28, backgroundColor: colors.primary, alignItems: "center", justifyContent: "center" },
+  fieldLabel: { fontSize: font.xs, fontWeight: "700", color: colors.textMuted, textTransform: "uppercase", letterSpacing: 0.6, marginBottom: 4 },
+  select: { flexDirection: "row", alignItems: "center", gap: 8, minHeight: 44, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, paddingHorizontal: spacing.md, backgroundColor: colors.bg },
+  selectOpen: { borderColor: colors.primary },
+  selectText: { flex: 1, fontSize: font.body, color: colors.text },
+  menu: { marginTop: 4, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, backgroundColor: colors.card, overflow: "hidden" },
+  menuSearch: { paddingHorizontal: spacing.md, paddingVertical: 10, fontSize: font.body, color: colors.text, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: colors.border, fontFamily: "Urbanist_500Medium" },
+  menuItem: { paddingHorizontal: spacing.md, paddingVertical: 11, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: colors.border },
+  menuItemOn: { backgroundColor: colors.primarySoft },
+  menuText: { fontSize: font.sm, color: colors.text },
+  menuTextOn: { color: colors.primary, fontWeight: "700" },
+  menuEmpty: { padding: spacing.md, fontSize: font.sm, color: colors.textMuted, textAlign: "center" },
 });

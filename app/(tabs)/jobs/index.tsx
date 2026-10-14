@@ -56,7 +56,7 @@ export default function JobsScreen() {
             refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => { setRefreshing(true); load(); }} />}
           >
             {tab === "installations" && (openI.length ? openI.map((j) => <InstallCard key={j.id} j={j} />) : <EmptyState icon="layers-outline" title="No installations" subtitle="Assets assigned to you for installation appear here." />)}
-            {tab === "maintenance" && (openM.length ? openM.map((j) => <JobCard key={j.id} j={j} />) : <EmptyState icon="construct-outline" title="No maintenance jobs" subtitle="Faults and rounds assigned to you appear here." />)}
+            {tab === "maintenance" && (openM.length ? openM.map((j) => <JobCard key={j.id} j={j} />) : <EmptyState icon="construct-outline" title="No maintenance jobs" subtitle="Corrective and preventive jobs assigned to you appear here." />)}
             {tab === "done" && (doneI.length + doneM.length ? (
               <>
                 {doneI.map((j) => <InstallCard key={j.id} j={j} />)}
@@ -101,7 +101,7 @@ function JobCard({ j }: { j: MaintenanceJob }) {
           <Ionicons name={fault ? "flash-outline" : "refresh-outline"} size={18} color={fault ? colors.danger : "#b45309"} />
         </View>
         <View style={{ flex: 1 }}>
-          <Text style={styles.code}>{j.ticket_number ?? j.device_code ?? "Round"}</Text>
+          <Text style={styles.code}>{j.ticket_number ?? j.device_code ?? "Preventive"}</Text>
           <Text style={styles.name} numberOfLines={1}>{j.title}</Text>
         </View>
         <Pill label={j.status_display} fg={j.status === "in_process" ? "#b45309" : colors.textMuted} bg={j.status === "in_process" ? colors.warningSoft : colors.secondary} />
