@@ -26,6 +26,7 @@ interface Schedule {
   id: string; title: string; description?: string; maintenance_type: "preventive" | "corrective"; status: string; status_display: string;
   priority: string; device: string | null; device_code: string | null; device_name: string | null;
   site: string | null; site_name: string | null; assigned_to: string | null; assigned_to_name: string | null;
+  current_technician_name?: string | null;
   ticket: string | null; ticket_number: string | null; ticket_description?: string | null; next_due?: string | null;
 }
 interface VisitPhoto { id: string; kind: string; image: string; caption: string }
@@ -219,7 +220,7 @@ export default function JobScreen() {
             <Row label="Kind" value={job.maintenance_type === "corrective" ? "Fault (corrective)" : "Round (preventive)"} />
             <Row label="Asset" value={job.device_code ? `${job.device_code} · ${job.device_name ?? ""}` : "—"} />
             <Row label="Site" value={job.site_name ?? "—"} />
-            <Row label="Technician" value={job.assigned_to_name ?? "Not assigned"} />
+            <Row label="Technician" value={job.current_technician_name ?? job.assigned_to_name ?? "Not assigned"} />
             {current ? <Row label="Visit" value={`#${current.sequence}${current.due_date ? ` · due ${current.due_date}` : ""}`} /> : null}
             {job.ticket_description ? <Text style={[styles.hint, { marginTop: 8 }]}>{job.ticket_description}</Text> : null}
           </Card>

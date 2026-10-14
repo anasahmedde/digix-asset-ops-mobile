@@ -125,15 +125,6 @@ export default function InstallationScreen() {
     setStepForm(null);
     run("add", async () => { await api.post("/sites/installation-steps/", body); }, "Could not add the step");
   };
-  const addPhoto = (kind: "pre_install" | "post_install") => run(kind, async () => {
-    const a = await takePhoto();
-    if (!a) return;
-    const fd = new FormData();
-    fd.append("installation", inst.id);
-    fd.append("photo_type", kind);
-    fd.append("image", asUpload(a, "install.jpg"));
-    await api.post("/sites/installation-photos/", fd, { headers: { "Content-Type": "multipart/form-data" } });
-  }, "Photo upload failed");
   const verify = (code: string) => {
     setScan(false);
     run("verify", async () => {
@@ -266,18 +257,11 @@ export default function InstallationScreen() {
             </FlowStep>
           </Section>
 
-          {/* Photos */}
-          <Section
-            title="Photos"
-            hint="Before you start and after you finish."
-            action={canAct ? (
-              <View style={{ flexDirection: "row", gap: 6 }}>
-                <Button title="Before" small variant="secondary" icon="camera-outline" loading={busy === "pre_install"} onPress={() => addPhoto("pre_install")} />
-                <Button title="After" small variant="secondary" icon="camera-outline" loading={busy === "post_install"} onPress={() => addPhoto("post_install")} />
-              </View>
-            ) : undefined}
-          >
-            {inst.photos.length === 0 ? <Text style={styles.muted}>No photos yet.</Text> : (
+          {/* The photos this job already holds - the asset running, the
+              signed sheet. Nothing to take here: the installer photographs
+              the asset when marking it active, and the sheet at handover. */}
+          {inst.photos.length > 0 ? (
+          <Section title="Photos">
               <View style={styles.photoGrid}>
                 {inst.photos.map((p) => (
                   <View key={p.id}>
@@ -286,8 +270,8 @@ export default function InstallationScreen() {
                   </View>
                 ))}
               </View>
-            )}
           </Section>
+          ) : null}
         </ScrollView>
 
         {/* Add step */}

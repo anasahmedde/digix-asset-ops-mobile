@@ -47,7 +47,10 @@ export async function myInstallations(me: string): Promise<InstallationJob[]> {
 }
 
 export async function myMaintenance(me: string): Promise<MaintenanceJob[]> {
-  const { data } = await api.get("/maintenance/schedules/", { params: { assigned_to: me, page_size: 100, ordering: "next_due" } });
+  // The jobs this person is on now: their open visit, or a job in their
+  // name with none open. By the job's name alone, a job whose visit had gone
+  // to somebody else stayed in this list with nothing to do.
+  const { data } = await api.get("/maintenance/schedules/", { params: { technician: me, page_size: 100, ordering: "next_due" } });
   return (data.results ?? data) as MaintenanceJob[];
 }
 
