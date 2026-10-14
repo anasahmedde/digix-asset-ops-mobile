@@ -41,6 +41,8 @@ export interface Ticket {
   /** Whether this viewer may review the work: set by the server from the reporting line. */
   reviewable_by_me?: boolean;
   devices_info?: { id: string; asset_code: string; display_name: string | null }[];
+  /** The corrective jobs that carry this ticket's work, one per asset. */
+  maintenance_jobs?: { id: string; status: string; asset_code: string | null; asset_name: string | null; site_name: string | null }[];
   assigned_vendor?: string | null;
   title: string;
   description?: string;

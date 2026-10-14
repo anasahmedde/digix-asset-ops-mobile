@@ -1,6 +1,6 @@
 import { Ionicons } from "@expo/vector-icons";
 import * as ImagePicker from "expo-image-picker";
-import { Stack, useLocalSearchParams } from "expo-router";
+import { Stack, router, useLocalSearchParams } from "expo-router";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { ActivityIndicator, Image, KeyboardAvoidingView, Modal, Platform, Pressable, ScrollView, StyleSheet, TextInput, View } from "react-native";
 import { Text } from "@/components/text";
@@ -178,7 +178,11 @@ export default function TicketDetailScreen() {
   if (!ticket) return <><Stack.Screen options={{ title: "Ticket" }} /><View style={styles.center}><Text>Ticket not found.</Text></View></>;
 
   const s = ticket.status;
-  const actions = buildActions(s, perms);
+  // As on the web: once a maintenance job carries the work, assigning,
+  // starting, completing and reviewing happen there (the server refuses
+  // them here), so the ticket only points at the job.
+  const jobs = ticket.maintenance_jobs ?? [];
+  const actions = jobs.length ? [] : buildActions(s, perms);
 
   return (
     <>
@@ -210,24 +214,17 @@ export default function TicketDetailScreen() {
             <Row label="Category" value={labelize(ticket.category)} />
             <Row label="Site" value={ticket.site_name || "—"} />
             <Row label="Asset" value={ticket.device_code || "—"} />
-            <Row label="Assigned to" value={ticket.assigned_to_name || "Unassigned"} />
-            <Row label="Reported by" value={ticket.reported_by_name || "—"} />
-            <Row label="Due date" value={ticket.due_date || "—"} />
+            <Row label="Assigned To" value={ticket.assigned_to_name || "Unassigned"} />
+            <Row label="Reported By" value={ticket.reported_by_name || "—"} />
+            <Row label="Due Date" value={ticket.due_date || "—"} />
             {ticket.warranty_info ? (
               <Row
                 label="Warranty"
                 value={`${labelize(ticket.warranty_info.warranty_type)} · until ${ticket.warranty_info.end_date}`}
               />
             ) : null}
-            {ticket.is_billable !== undefined ? (
-              <Row
-                label="Billing"
-                value={ticket.is_billable ? `Billable to ${labelize(ticket.charge_to || "client")}` : "Covered — no client charge"}
-              />
-            ) : null}
-            {ticket.repair_cost ? <Row label="Repair cost" value={String(ticket.repair_cost)} /> : null}
             {ticket.devices_info && ticket.devices_info.length > 1 ? (
-              <Row label="Assets covered" value={ticket.devices_info.map((d) => d.asset_code).join(", ")} />
+              <Row label="Assets Covered" value={ticket.devices_info.map((d) => d.asset_code).join(", ")} />
             ) : null}
           </Card>
 
@@ -238,6 +235,22 @@ export default function TicketDetailScreen() {
             </View>
           ) : null}
 
+          {jobs.length ? (
+            <View style={styles.block}>
+              <Text style={styles.blockTitle}>The work</Text>
+              <Text style={styles.body}>
+                This fault is worked as a maintenance job: the technician, the visits and the review all live there. This ticket follows it and closes when the repair is accepted.
+              </Text>
+              <View style={{ gap: spacing.sm, marginTop: spacing.sm }}>
+                {jobs.length > 1 ? jobs.map((j) => (
+                  <Button key={j.id} title={j.asset_code ?? "Asset"} icon="construct-outline" variant="secondary" small onPress={() => router.push(`/job/${j.id}`)} />
+                )) : (
+                  <Button title="Open in Maintenance" icon="construct-outline" variant="secondary" onPress={() => router.push(`/job/${jobs[0].id}`)} />
+                )}
+              </View>
+            </View>
+          ) : null}
+
           {ticket.hold_reason ? <Note tone="hold" icon="pause-circle" title="On hold" text={ticket.hold_reason} /> : null}
           {ticket.blocked_reason ? <Note tone="block" icon="alert-circle" title="Blocked" text={ticket.blocked_reason} /> : null}
           {ticket.review_comments && s === "rejected" ? <Note tone="block" icon="close-circle" title="Rejected — feedback" text={ticket.review_comments} /> : null}
@@ -245,7 +258,7 @@ export default function TicketDetailScreen() {
           {/* Attachments */}
           {ticket.attachments && ticket.attachments.length > 0 ? (
             <View style={styles.block}>
-              <Text style={styles.blockTitle}>Photos ({ticket.attachments.length})</Text>
+              <Text style={styles.blockTitle}>Attachments ({ticket.attachments.length})</Text>
               <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: spacing.sm }}>
                 {ticket.attachments.map((a) => (
                   <Pressable key={a.id} onPress={() => setViewer({ uri: mediaUrl(a.file)!, caption: a.caption })}>
@@ -257,7 +270,7 @@ export default function TicketDetailScreen() {
           ) : null}
 
           {/* Activity */}
-          <SectionHeader title="Activity" />
+          <SectionHeader title="Activity & Comments" />
           {(ticket.comments ?? []).length === 0 ? (
             <Text style={styles.muted}>No activity yet.</Text>
           ) : (
@@ -312,7 +325,7 @@ export default function TicketDetailScreen() {
         </ScrollView>
 
         {/* Assign (Operations) */}
-        {perms.isManager && ticket.status !== "closed" && (
+        {perms.isManager && ticket.status !== "closed" && !jobs.length && (
           <Pressable onPress={openAssign} style={styles.assignBar}>
             <Ionicons name="person-add-outline" size={18} color={colors.primary} />
             <Text style={styles.assignBarText}>
