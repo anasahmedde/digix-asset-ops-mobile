@@ -10,6 +10,19 @@ import { SafeAreaView } from "react-native-safe-area-context";
 import { colors, font, radius, spacing } from "@/constants/theme";
 import { login } from "@/lib/auth";
 
+/** What went wrong signing in, in the words the person can act on. */
+function signInError(err: unknown): string {
+  const e = err as { message?: string; response?: { status?: number; data?: { detail?: string } } };
+  if (e.message === "storage") return "Signed in, but this phone would not keep the session. Restart the app and try again.";
+  const status = e.response?.status;
+  const detail = e.response?.data?.detail;
+  if (!e.response) return "Cannot reach the server. Check the phone's internet connection and try again.";
+  if (status === 429) return "Too many sign-in attempts from this phone. Wait a few minutes and try again.";
+  if (status === 401 && detail === "Incorrect password.") return "Incorrect password. Check it and try again.";
+  if (status === 401 && detail?.startsWith("No account")) return "No account with that username. Check the spelling, or ask your supervisor for your username.";
+  return detail || `Sign-in failed (${status}). Try again.`;
+}
+
 export default function LoginScreen() {
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
@@ -22,22 +35,19 @@ export default function LoginScreen() {
   const [focused, setFocused] = useState<"user" | "pass" | null>(null);
 
   async function handleLogin() {
-    if (!username || !password) {
-      setError("Please enter your username and password");
+    // The keyboard's suggestion leaves a space after the word.
+    const user = username.trim();
+    if (!user || !password) {
+      setError("Enter your username and password.");
       return;
     }
     setError("");
     setLoading(true);
     try {
-      await login(username, password);
+      await login(user, password);
       router.replace("/(tabs)");
     } catch (err) {
-      const e = err as { message?: string; response?: { status?: number; data?: { detail?: string } } };
-      setError(
-        e.message === "storage"
-          ? "Signed in, but this phone would not keep the session. Restart the app and try again."
-          : e.response?.data?.detail || (e.response ? `Sign-in failed (${e.response.status})` : "Cannot reach the server. Check the connection."),
-      );
+      setError(signInError(err));
     } finally {
       setLoading(false);
     }
@@ -89,9 +99,11 @@ export default function LoginScreen() {
                   placeholder="Your username"
                   placeholderTextColor={colors.textLight}
                   value={username}
-                  onChangeText={setUsername}
+                  onChangeText={(v) => { setUsername(v); if (error) setError(""); }}
                   autoCapitalize="none"
                   autoCorrect={false}
+                  autoComplete="username"
+                  textContentType="username"
                   onFocus={() => setFocused("user")}
                   onBlur={() => setFocused(null)}
                   returnKeyType="next"
@@ -107,8 +119,12 @@ export default function LoginScreen() {
                   placeholder="Your password"
                   placeholderTextColor={colors.textLight}
                   value={password}
-                  onChangeText={setPassword}
+                  onChangeText={(v) => { setPassword(v); if (error) setError(""); }}
                   secureTextEntry={!showPassword}
+                  autoCapitalize="none"
+                  autoCorrect={false}
+                  autoComplete="password"
+                  textContentType="password"
                   onFocus={() => setFocused("pass")}
                   onBlur={() => setFocused(null)}
                   returnKeyType="go"

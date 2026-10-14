@@ -52,6 +52,14 @@ api.interceptors.response.use(
   (response) => response,
   async (error) => {
     const originalRequest = error.config;
+    // A 401 from signing in is the answer to the sign-in ("Incorrect
+    // password."), not an expired session: it goes back to the login form as
+    // it is. Treating it as an expiry replaced that answer with "Signed out:
+    // /auth/token/ answered 401", and nobody could tell what was wrong.
+    const url: string = originalRequest?.url ?? "";
+    if (url.includes("/auth/token")) {
+      return Promise.reject(error);
+    }
 
     if (error.response?.status === 401 && originalRequest && !originalRequest._retry) {
       originalRequest._retry = true;
@@ -65,9 +73,8 @@ api.interceptors.response.use(
         originalRequest.headers = originalRequest.headers ?? {};
         originalRequest.headers.Authorization = `Bearer ${newAccess}`;
         return api(originalRequest);
-      } catch (refreshError) {
-        const why = (refreshError as { response?: { status?: number } })?.response?.status ?? "no refresh";
-        await forceLogout(`Signed out: ${originalRequest.url} answered 401, refresh ${why}.`);
+      } catch {
+        await forceLogout("Your session has ended. Sign in again.");
       }
     }
 
