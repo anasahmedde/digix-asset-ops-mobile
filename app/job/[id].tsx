@@ -214,6 +214,9 @@ export default function JobScreen() {
       opts.push({ id: p.id, kind: "product", name, unit: p.unit || "piece", label: `${name} · ${p.in_stock_count} ${p.unit || "piece"} in stock` });
     }
     setStock(opts);
+    // A refused list says so, rather than reading as an empty store.
+    const refused = [items, products].find((r) => r.status === "rejected") as PromiseRejectedResult | undefined;
+    if (refused) fail(refused.reason, "Could not load the stock list");
   };
   const requestPart = () => {
     const opt = stock?.find((o) => o.id === partForm?.pick);
