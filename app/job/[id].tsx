@@ -35,7 +35,7 @@ interface Schedule {
 interface VisitPhoto { id: string; kind: string; image: string; caption: string }
 interface Visit {
   id: string; sequence: number; status: string; status_display: string; assigned_to: string | null; due_date: string | null;
-  started_at: string | null; completed_at: string | null; remarks: string; resolved: boolean | null;
+  started_at: string | null; completed_at: string | null; remarks: string; notes?: string; resolved: boolean | null;
   asset_verified_at: string | null;
   review_decision: string | null; review_note: string | null; visit_photos: VisitPhoto[]; has_before_photo: boolean; has_after_photo: boolean;
 }
@@ -87,8 +87,14 @@ export default function JobScreen() {
         api.get("/maintenance/part-requests/", { params: { schedule: id, page_size: 100 } }),
         getPresence(),
       ]);
-      if (s.status === "fulfilled") { setJob(s.value.data); setNotes((n) => n || s.value.data.description || ""); }
-      if (v.status === "fulfilled") setVisits(v.value.data.results ?? v.value.data);
+      if (s.status === "fulfilled") setJob(s.value.data);
+      if (v.status === "fulfilled") {
+        const rows: Visit[] = v.value.data.results ?? v.value.data;
+        setVisits(rows);
+        // The write-up is the open visit's own, not the job's description.
+        const open = [...rows].reverse().find((x) => x.status !== "completed" && x.status !== "skipped");
+        setNotes((n) => n || open?.notes || "");
+      }
       if (p.status === "fulfilled") setParts(p.value.data.results ?? p.value.data);
       if (pr.status === "fulfilled") setPresence(pr.value);
     } finally {
@@ -196,7 +202,7 @@ export default function JobScreen() {
     await api.post(`/maintenance/visits/${current.id}/start/`, where);
     toast.success("Work started");
   }, "Could not start this visit");
-  const saveNotes = () => run("notes", async () => { if (current) await api.patch(`/maintenance/visits/${current.id}/`, { notes }); toast.success("Saved"); }, "Could not save the work done");
+  const saveNotes = () => run("notes", async () => { if (current) await api.post(`/maintenance/visits/${current.id}/notes/`, { notes }); toast.success("Saved"); }, "Could not save the work done");
   // The same list the web offers, loaded once: counted stock and
   // individually tracked units, each with what is on the shelf.
   const loadStock = async () => {
