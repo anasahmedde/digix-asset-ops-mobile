@@ -13,7 +13,7 @@ import api from "@/lib/api";
 import { Presence, checkIn, checkOut, getPresence, onSite } from "@/lib/attendance";
 import { mediaUrl } from "@/lib/format";
 import { getCurrentLocation, requestForegroundLocationPermission } from "@/lib/location";
-import { asUpload, takePhoto } from "@/lib/photos";
+import { asUpload, pickFromLibrary, takePhoto } from "@/lib/photos";
 import * as SecureStore from "@/lib/secure-store";
 import { toast } from "@/lib/toast";
 import { getCurrentUser } from "@/lib/user";
@@ -33,11 +33,18 @@ interface Schedule {
   ticket: string | null; ticket_number: string | null; ticket_description?: string | null; next_due?: string | null;
 }
 interface VisitPhoto { id: string; kind: string; image: string; caption: string }
+/** Bought on site, with the receipt and a photo of the part. */
+interface Purchase {
+  id: string; description: string; quantity: number; amount: string; shop: string;
+  receipt: string; photo: string; bought_by: string | null; bought_by_name: string | null; created_at: string;
+}
+type Upload = ReturnType<typeof asUpload>;
 interface Visit {
   id: string; sequence: number; status: string; status_display: string; assigned_to: string | null; due_date: string | null;
   started_at: string | null; completed_at: string | null; remarks: string; notes?: string; resolved: boolean | null;
   asset_verified_at: string | null;
   review_decision: string | null; review_note: string | null; visit_photos: VisitPhoto[]; has_before_photo: boolean; has_after_photo: boolean;
+  purchases?: Purchase[];
 }
 interface Part {
   id: string; what: string; unit: string; item: string | null; unit_type: string | null; quantity_requested: number; quantity_approved: number | null;
@@ -70,6 +77,12 @@ export default function JobScreen() {
   const [stock, setStock] = useState<StockOption[] | null>(null);
   const [finish, setFinish] = useState<{ resolved: boolean | null } | null>(null);
   const [giveBack, setGiveBack] = useState<{ used: Record<string, string>; back: Record<string, string[]> } | null>(null);
+  // Bought on site: the form, and the question asked at check-out.
+  const [buy, setBuy] = useState<{
+    description: string; quantity: string; amount: string; shop: string;
+    receipt: Upload | null; receiptName: string; photo: Upload | null; fromCheckout: boolean;
+  } | null>(null);
+  const [askBought, setAskBought] = useState(false);
   // "No components needed" for this visit. The server has nothing to keep it
   // on - nothing asked for is what it records - so the phone remembers it.
   const [noneNeeded, setNoneNeeded] = useState(false);
@@ -169,6 +182,39 @@ export default function JobScreen() {
   // -- actions
   const clockIn = () => run("presence", async () => { if (!job.site) throw new Error("no site"); setPresence(await checkIn(job.site)); }, "This job has no site to check in at");
   const clockOut = () => run("presence", async () => { setPresence(await checkOut(job.site)); toast.success("Checked out"); }, "Could not check out");
+  // Leaving the site: first, was anything bought for this job?
+  const askOnCheckout = () => { if (mine && current && !closed) setAskBought(true); else clockOut(); };
+  const openBuy = (fromCheckout = false) => {
+    setAskBought(false);
+    setBuy({ description: "", quantity: "1", amount: "", shop: "", receipt: null, receiptName: "", photo: null, fromCheckout });
+  };
+  const saveBuy = () => {
+    if (!buy || !current) return;
+    if (!buy.description.trim()) { toast.error("Say what you bought"); return; }
+    const amount = Number(buy.amount);
+    if (!amount || amount <= 0) { toast.error("Enter the amount on the receipt"); return; }
+    if (!buy.receipt) { toast.error("Add the receipt"); return; }
+    if (!buy.photo) { toast.error("Take a photo of the component"); return; }
+    const f = buy;
+    setBuy(null);
+    run("buy", async () => {
+      const fd = new FormData();
+      fd.append("visit", current.id);
+      fd.append("description", f.description.trim());
+      fd.append("quantity", String(Math.max(1, Number(f.quantity) || 1)));
+      fd.append("amount", amount.toFixed(2));
+      if (f.shop.trim()) fd.append("shop", f.shop.trim());
+      fd.append("receipt", f.receipt as unknown as Blob);
+      fd.append("photo", f.photo as unknown as Blob);
+      await api.post("/maintenance/purchases/", fd, { headers: { "Content-Type": "multipart/form-data" } });
+      toast.success("Purchase recorded");
+      if (f.fromCheckout) setAskBought(true);
+    }, "Could not record the purchase");
+  };
+  const removeBuy = (p: Purchase) => run(`buy-${p.id}`, async () => {
+    await api.delete(`/maintenance/purchases/${p.id}/`);
+    toast.success("Purchase taken back");
+  }, "Could not take the purchase back");
   const photo = (kind: "before" | "after", withNotes?: string) => run(kind, async () => {
     if (!current) return;
     const a = await takePhoto();
@@ -321,7 +367,7 @@ export default function JobScreen() {
 
           <PresenceCard
             presence={presence} site={job.site} siteName={job.site_name ?? "the site"} mine={mine} busy={busy === "presence"}
-            onCheckIn={clockIn} onCheckOut={clockOut}
+            onCheckIn={clockIn} onCheckOut={askOnCheckout}
             lockedReason={!componentsDone && !here ? "Components for this visit come first (step 1). Check-in opens once they are issued, or none are needed." : undefined}
           />
           <ScanSheet open={scan} expect={job.device_code ?? ""} onScan={verify} onClose={() => setScan(false)} />
@@ -424,7 +470,7 @@ export default function JobScreen() {
               {awaiting ? <Text style={styles.hint}>Waiting for the office to review the work.</Text> : null}
             </FlowStep>
             <FlowStep n={8} title="Check out" state={stage > 8 || (closed && !here) ? "done" : stage === 8 ? "now" : "later"}>
-              {stage === 8 && here ? <Button title="Check out of the site" icon="log-out-outline" variant="secondary" loading={busy === "presence"} onPress={clockOut} /> : null}
+              {stage === 8 && here ? <Button title="Check out of the site" icon="log-out-outline" variant="secondary" loading={busy === "presence"} onPress={askOnCheckout} /> : null}
             </FlowStep>
             {hadIssued ? (
               <FlowStep n={9} title="Return unused components" state={issued.length === 0 ? "done" : stage === 9 ? "now" : "later"}>
@@ -442,6 +488,33 @@ export default function JobScreen() {
               </FlowStep>
             ) : null}
           </Section>
+
+          {/* Bought on site */}
+          {current ? (
+            <Section title="Bought on site">
+              {(current.purchases ?? []).length === 0 ? (
+                <Text style={styles.hint}>Nothing bought on site for this visit.</Text>
+              ) : (current.purchases ?? []).map((p) => (
+                <View key={p.id} style={styles.part}>
+                  <Image source={{ uri: mediaUrl(p.photo) }} style={styles.buyThumb} />
+                  <View style={{ flex: 1, gap: 2 }}>
+                    <Text style={styles.partName}>{p.description}</Text>
+                    <Text style={styles.hint}>
+                      {p.quantity} · PKR {Number(p.amount).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                      {p.shop ? ` · ${p.shop}` : ""}
+                    </Text>
+                    <Text style={styles.hint}>{p.bought_by_name ?? ""}{p.created_at ? ` · ${new Date(p.created_at).toLocaleString()}` : ""}</Text>
+                  </View>
+                  {mine && !closed && current.status !== "completed" && me?.id === p.bought_by ? (
+                    <Pressable onPress={() => removeBuy(p)} hitSlop={8}><Text style={styles.withdraw}>Remove</Text></Pressable>
+                  ) : null}
+                </View>
+              ))}
+              {mine && !closed ? (
+                <Button title="Record a purchase" small variant="secondary" icon="cart-outline" loading={busy === "buy"} onPress={() => openBuy(false)} />
+              ) : null}
+            </Section>
+          ) : null}
 
           {/* Photos */}
           <Section title="Photos">
@@ -508,6 +581,79 @@ export default function JobScreen() {
               <View style={styles.modalActions}>
                 <Button title="Cancel" small variant="secondary" onPress={() => setPartForm(null)} />
                 <Button title="Raise request" small icon="add" disabled={!partForm?.pick} onPress={requestPart} />
+              </View>
+            </View>
+          </View>
+        </Modal>
+
+        {/* At check-out: was anything bought for this job? */}
+        <Modal visible={askBought} transparent animationType="slide" onRequestClose={() => setAskBought(false)}>
+          <View style={styles.modalWrap}>
+            <View style={styles.modalCard}>
+              <Text style={styles.modalTitle}>Did you purchase anything for this job?</Text>
+              <Text style={styles.hint}>A component bought in the market is recorded against the job with its receipt, the amount and a photo.</Text>
+              {(current?.purchases ?? []).map((p) => (
+                <Text key={p.id} style={styles.hint}>· {p.description} × {p.quantity} — PKR {Number(p.amount).toLocaleString()}</Text>
+              ))}
+              <View style={{ gap: 8 }}>
+                <Button title={(current?.purchases ?? []).length ? "Yes, record another" : "Yes, record it"} icon="cart-outline" onPress={() => openBuy(true)} />
+                <Button title={(current?.purchases ?? []).length ? "That is all, check out" : "No, check out"} variant="secondary" icon="log-out-outline"
+                  onPress={() => { setAskBought(false); clockOut(); }} />
+                <Button title="Cancel" small variant="ghost" onPress={() => setAskBought(false)} />
+              </View>
+            </View>
+          </View>
+        </Modal>
+
+        {/* Record a purchase */}
+        <Modal visible={!!buy} transparent animationType="slide" onRequestClose={() => setBuy(null)}>
+          <View style={styles.modalWrap}>
+            <View style={styles.modalCard}>
+              <Text style={styles.modalTitle}>Record a purchase</Text>
+              <ScrollView style={{ maxHeight: 460 }} keyboardShouldPersistTaps="handled" contentContainerStyle={{ gap: spacing.md }}>
+                <View>
+                  <FieldLabel>Component details</FieldLabel>
+                  <TextInput style={styles.input} placeholder="What it is: make, model, size" placeholderTextColor={colors.textLight}
+                    value={buy?.description ?? ""} onChangeText={(t) => setBuy((f) => f && { ...f, description: t })} />
+                </View>
+                <View style={{ flexDirection: "row", gap: 8 }}>
+                  <View style={{ width: 96 }}>
+                    <FieldLabel>Quantity</FieldLabel>
+                    <TextInput style={styles.input} keyboardType="number-pad" value={buy?.quantity ?? ""}
+                      onChangeText={(t) => setBuy((f) => f && { ...f, quantity: t })} />
+                  </View>
+                  <View style={{ flex: 1 }}>
+                    <FieldLabel>Amount paid (PKR)</FieldLabel>
+                    <TextInput style={styles.input} keyboardType="decimal-pad" placeholder="As on the receipt" placeholderTextColor={colors.textLight}
+                      value={buy?.amount ?? ""} onChangeText={(t) => setBuy((f) => f && { ...f, amount: t })} />
+                  </View>
+                </View>
+                <View>
+                  <FieldLabel>Shop</FieldLabel>
+                  <TextInput style={styles.input} placeholder="Where it was bought (optional)" placeholderTextColor={colors.textLight}
+                    value={buy?.shop ?? ""} onChangeText={(t) => setBuy((f) => f && { ...f, shop: t })} />
+                </View>
+                <View style={{ gap: 6 }}>
+                  <FieldLabel>Receipt</FieldLabel>
+                  <View style={{ flexDirection: "row", gap: 8 }}>
+                    <Button title="Photograph" small variant="secondary" icon="camera-outline" style={{ flex: 1 }}
+                      onPress={async () => { const a = await takePhoto(); if (a) setBuy((f) => f && { ...f, receipt: asUpload(a, "receipt.jpg"), receiptName: "photo taken" }); }} />
+                    <Button title="Pick a file" small variant="secondary" icon="folder-open-outline" style={{ flex: 1 }}
+                      onPress={async () => { const a = await pickFromLibrary(); if (a) setBuy((f) => f && { ...f, receipt: asUpload(a, "receipt.jpg"), receiptName: a.fileName ?? "file chosen" }); }} />
+                  </View>
+                  {buy?.receipt ? <Text style={[styles.hint, { color: "#047857" }]}>Receipt attached: {buy.receiptName}</Text> : null}
+                </View>
+                <View style={{ gap: 6 }}>
+                  <FieldLabel>Component photo</FieldLabel>
+                  <Button title={buy?.photo ? "Retake the photo" : "Take a photo of the component"} small variant="secondary" icon="camera"
+                    onPress={async () => { const a = await takePhoto(); if (a) setBuy((f) => f && { ...f, photo: asUpload(a, "component.jpg") }); }} />
+                  {buy?.photo ? <Text style={[styles.hint, { color: "#047857" }]}>Photo taken</Text> : null}
+                </View>
+              </ScrollView>
+              <Text style={styles.hint}>All four are needed: what it is, the amount, the receipt and the photo.</Text>
+              <View style={styles.modalActions}>
+                <Button title="Cancel" small variant="secondary" onPress={() => { const back = buy?.fromCheckout; setBuy(null); if (back) setAskBought(true); }} />
+                <Button title="Save purchase" small icon="checkmark" onPress={saveBuy} />
               </View>
             </View>
           </View>
@@ -614,6 +760,7 @@ const styles = StyleSheet.create({
   input: { borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, paddingHorizontal: spacing.md, paddingVertical: 10, fontSize: font.body, color: colors.text, backgroundColor: colors.bg, fontFamily: "Urbanist_500Medium" },
   qtyBox: { flexDirection: "row", alignItems: "center", gap: 8, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, paddingRight: spacing.md, backgroundColor: colors.bg },
   qtyInput: { flex: 1, paddingHorizontal: spacing.md, paddingVertical: 10, fontSize: font.body, color: colors.text, fontFamily: "Urbanist_500Medium" },
+  buyThumb: { width: 48, height: 48, borderRadius: radius.sm, backgroundColor: colors.border },
   settle: { gap: 6, paddingTop: 8, borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: colors.border },
   serial: { borderRadius: radius.pill, paddingHorizontal: 10, paddingVertical: 5, backgroundColor: colors.secondary },
   serialOn: { backgroundColor: colors.primary },
