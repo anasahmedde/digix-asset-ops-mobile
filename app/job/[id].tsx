@@ -12,7 +12,7 @@ import { Button, Card, FieldLabel, Pill, Row, Select } from "@/components/ui";
 import { colors, font, radius, spacing } from "@/constants/theme";
 import api from "@/lib/api";
 import { Presence, checkIn, checkOut, getPresence, onSite } from "@/lib/attendance";
-import { mediaUrl } from "@/lib/format";
+import { formatDate, mediaUrl } from "@/lib/format";
 import { getCurrentLocation, requestForegroundLocationPermission } from "@/lib/location";
 import { Op, QUEUED_NOTE, cached, discard, isNetworkError, pendingFor, submit } from "@/lib/offline";
 import { asFile, asUpload, pickFromLibrary, takePhoto } from "@/lib/photos";
@@ -23,9 +23,10 @@ import { getCurrentUser } from "@/lib/user";
 /**
  * A maintenance job on the phone, start to finish: the components it needs
  * (asked for, approved, issued - before setting off), check in, scan the
- * asset, Before photo, start, the work, After photo, hand it in for review,
- * check out, and back at the store say what was used: the rest goes to
- * receiving.
+ * asset, Before photo, start, the work, After photo, check out (which hands
+ * the visit in for review), and back at the store say what was used: the
+ * rest goes to receiving. If the office does not approve it, the job comes
+ * back as a new visit; every earlier one is logged in full at the bottom.
  */
 interface Schedule {
   id: string; title: string; description?: string; maintenance_type: "preventive" | "corrective"; status: string; status_display: string;
@@ -43,10 +44,15 @@ interface Purchase {
 type Upload = ReturnType<typeof asUpload>;
 interface Visit {
   id: string; sequence: number; status: string; status_display: string; assigned_to: string | null; due_date: string | null;
+  assigned_to_name?: string | null;
   started_at: string | null; completed_at: string | null; remarks: string; notes?: string; resolved: boolean | null;
   asset_verified_at: string | null;
-  review_decision: string | null; review_note: string | null; visit_photos: VisitPhoto[]; has_before_photo: boolean; has_after_photo: boolean;
+  review_decision: string | null; review_decision_display?: string; review_reason?: string; review_note: string | null;
+  reviewed_by_name?: string | null; reviewed_at?: string | null;
+  visit_photos: VisitPhoto[]; has_before_photo: boolean; has_after_photo: boolean;
   purchases?: Purchase[];
+  /** When the technician checked in for it and out after it. */
+  on_site?: { checked_in_at: string; checked_out_at: string | null; offline: boolean } | null;
 }
 interface Part {
   id: string; what: string; unit: string; item: string | null; unit_type: string | null; quantity_requested: number; quantity_approved: number | null;
@@ -56,6 +62,87 @@ interface Part {
 }
 /** A component the store keeps, listed the way the web's picker lists it. */
 interface StockOption { id: string; kind: "item" | "product"; name: string; unit: string; label: string }
+
+const when = (iso?: string | null) => (iso
+  ? new Date(iso).toLocaleString(undefined, { day: "numeric", month: "short", year: "numeric", hour: "numeric", minute: "2-digit" })
+  : "—");
+const money = (n: number) => `PKR ${n.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+
+/** One earlier visit, as it happened: who, when, what was found and done, what it used, and what the office said. */
+function VisitLog({ v, parts, corrective }: { v: Visit; parts: Part[]; corrective: boolean }) {
+  const used = parts.filter((p) => p.visit === v.id && p.quantity_used != null);
+  const bought = v.purchases ?? [];
+  const outcome = v.review_decision === "accepted" ? { fg: "#047857", bg: colors.successSoft }
+    : v.review_decision === "unresolved" ? { fg: "#b45309", bg: colors.warningSoft }
+    : { fg: colors.textMuted, bg: colors.secondary };
+  return (
+    <Card style={{ marginTop: spacing.sm, gap: 2 }}>
+      <View style={styles.headRow}>
+        <Text style={[styles.partName, { flex: 1, fontSize: font.body }]}>Visit {v.sequence}</Text>
+        <Pill label={v.review_decision_display || v.status_display} fg={outcome.fg} bg={outcome.bg} />
+      </View>
+      <Row label="Technician" value={v.assigned_to_name ?? "—"} />
+      <Row label="Due on" value={formatDate(v.due_date)} />
+      <Row label="Checked in" value={when(v.on_site?.checked_in_at)} />
+      {v.asset_verified_at ? <Row label="Asset scanned" value={when(v.asset_verified_at)} /> : null}
+      <Row label="Started" value={when(v.started_at)} />
+      <Row label="Finished" value={when(v.completed_at)} />
+      <Row label="Checked out" value={when(v.on_site?.checked_out_at)} />
+      {v.on_site?.offline ? <Text style={styles.hint}>Recorded without signal and uploaded later.</Text> : null}
+      {corrective && v.resolved !== null ? (
+        <Row label="Technician's verdict" value={v.resolved ? "Fault fixed" : "Not fixed"} />
+      ) : null}
+      {v.remarks || v.notes ? (
+        <View style={styles.logBlock}>
+          <FieldLabel>Work done</FieldLabel>
+          <Text style={styles.logText}>{v.remarks || v.notes}</Text>
+        </View>
+      ) : null}
+      {v.visit_photos.length ? (
+        <View style={[styles.logBlock, styles.photoGrid]}>
+          {v.visit_photos.map((p) => (
+            <View key={p.id}>
+              <Image source={{ uri: mediaUrl(p.image) }} style={styles.logPhoto} />
+              <Text style={styles.photoTag}>{p.kind}</Text>
+            </View>
+          ))}
+        </View>
+      ) : null}
+      {used.length ? (
+        <View style={styles.logBlock}>
+          <FieldLabel>Components used</FieldLabel>
+          {used.map((p) => (
+            <Text key={p.id} style={styles.logText}>
+              {p.what} · {p.quantity_used} {p.unit} used
+              {(p.quantity_returned ?? 0) > 0 ? `, ${p.quantity_returned} back on ${p.return_reference}` : ""}
+            </Text>
+          ))}
+        </View>
+      ) : null}
+      {bought.length ? (
+        <View style={styles.logBlock}>
+          <FieldLabel>Bought on site</FieldLabel>
+          {bought.map((p) => (
+            <Text key={p.id} style={styles.logText}>
+              {p.description} × {p.quantity} · {money(Number(p.amount))}{p.shop ? ` · ${p.shop}` : ""}
+            </Text>
+          ))}
+        </View>
+      ) : null}
+      {v.review_decision ? (
+        <View style={styles.logBlock}>
+          <FieldLabel>Office review</FieldLabel>
+          <Text style={styles.logText}>
+            {v.review_decision_display}{v.reviewed_by_name ? ` - ${v.reviewed_by_name}` : ""}{v.reviewed_at ? `, ${when(v.reviewed_at)}` : ""}
+          </Text>
+          {v.review_reason || v.review_note ? <Text style={styles.hint}>{v.review_reason || v.review_note}</Text> : null}
+        </View>
+      ) : v.status === "awaiting_review" ? (
+        <Text style={[styles.hint, styles.logBlock]}>Waiting for the office to review the work.</Text>
+      ) : null}
+    </Card>
+  );
+}
 
 const PART_TONE: Record<string, { fg: string; bg: string }> = {
   requested: { fg: "#b45309", bg: colors.warningSoft }, approved: { fg: "#1e40af", bg: colors.infoSoft },
@@ -114,14 +201,14 @@ export default function JobScreen() {
   // The web's "Components for this visit" form: Kind, Component, Quantity.
   const [partForm, setPartForm] = useState<{ kind: "generic" | "unique"; pick: string; qty: string } | null>(null);
   const [stock, setStock] = useState<StockOption[] | null>(null);
-  const [finish, setFinish] = useState<{ resolved: boolean | null } | null>(null);
+  // The Check out sheet: is it fixed (when it hands the visit in), and was anything bought?
+  const [leaving, setLeaving] = useState<{ resolved: boolean | null } | null>(null);
   const [giveBack, setGiveBack] = useState<{ used: Record<string, string>; back: Record<string, string[]> } | null>(null);
   // Bought on site: the form, and the question asked at check-out.
   const [buy, setBuy] = useState<{
     description: string; quantity: string; amount: string; shop: string;
-    receipt: Upload | null; receiptName: string; photo: Upload | null; fromCheckout: boolean;
+    receipt: Upload | null; receiptName: string; photo: Upload | null;
   } | null>(null);
-  const [askBought, setAskBought] = useState(false);
   // "No components needed" for this visit. The server has nothing to keep it
   // on - nothing asked for is what it records - so the phone remembers it.
   const [noneNeeded, setNoneNeeded] = useState(false);
@@ -218,8 +305,11 @@ export default function JobScreen() {
   // line approved and issued (or turned down). A visit already under way
   // is not held back by a question asked after it started.
   const componentsDone = closed || started || awaiting || ((liveParts.length > 0 || noneNeeded) && waitingParts.length === 0);
+  // Check out opens as soon as Work done is in: it hands the visit in for
+  // review on the way out. The office decides after; not approved, the job
+  // comes back as a new visit.
   const stage = closed ? 0
-    : awaiting ? (here ? 8 : issued.length ? 9 : 10)
+    : awaiting ? (here ? 7 : issued.length ? 8 : 9)
     : !componentsDone ? 1
     : !here ? 2
     : !verified ? 3
@@ -241,11 +331,36 @@ export default function JobScreen() {
     setPresence(p);
     said(!!p.queued, "Checked out");
   }, "Could not check out");
-  // Leaving the site: first, was anything bought for this job?
-  const askOnCheckout = () => { if (mine && current && !closed) setAskBought(true); else clockOut(); };
-  const openBuy = (fromCheckout = false) => {
-    setAskBought(false);
-    setBuy({ description: "", quantity: "1", amount: "", shop: "", receipt: null, receiptName: "", photo: null, fromCheckout });
+  // Leaving the site. With the work done it hands the visit in as well;
+  // first: is it fixed, and was anything bought for this job?
+  const corrective = job.maintenance_type === "corrective";
+  const handIn = !!current && started && workDone;
+  const askOnCheckout = () => { if (mine && current && !closed) setLeaving({ resolved: null }); else clockOut(); };
+  const leave = () => {
+    if (!leaving || !current) return;
+    if (handIn && corrective && leaving.resolved === null) { toast.error("Is the fault fixed?"); return; }
+    const f = leaving;
+    setLeaving(null);
+    run("presence", async () => {
+      let queued = false;
+      if (handIn) {
+        const remarks = notes.trim() || current.notes?.trim() || "";
+        const r = await submit({
+          kind: "complete", scope: `job:${id}`, label: "Complete visit",
+          method: "post", url: `/maintenance/visits/${current.id}/complete/`,
+          json: { remarks, ...(corrective ? { resolved: f.resolved } : {}) },
+          meta: { visit: current.id, remarks, ...(corrective ? { resolved: f.resolved } : {}) },
+        });
+        queued = r.queued;
+      }
+      const p = await checkOut(job.site);
+      setPresence(p);
+      said(queued || !!p.queued, !handIn ? "Checked out"
+        : issued.length ? "Checked out and sent for review · now return unused components" : "Checked out and sent for review");
+    }, "Could not check out");
+  };
+  const openBuy = () => {
+    setBuy({ description: "", quantity: "1", amount: "", shop: "", receipt: null, receiptName: "", photo: null });
   };
   const saveBuy = () => {
     if (!buy || !current) return;
@@ -277,7 +392,6 @@ export default function JobScreen() {
         },
       });
       said(r.queued, "Purchase recorded");
-      if (f.fromCheckout) setAskBought(true);
     }, "Could not record the purchase");
   };
   const removeBuy = (p: Purchase) => run(`buy-${p.id}`, async () => {
@@ -380,23 +494,6 @@ export default function JobScreen() {
       toast.success("Request raised — a supervisor decides next");
     }, "Could not raise that request");
   };
-  const complete = () => {
-    if (!finish || !current) return;
-    if (job.maintenance_type === "corrective" && finish.resolved === null) { toast.error("Is the fault fixed?"); return; }
-    if (finish.resolved === false && !notes.trim()) { toast.error("Say why it could not be fixed, under Work done"); return; }
-    const f = finish;
-    setFinish(null);
-    run("complete", async () => {
-      const body: Record<string, unknown> = { remarks: notes.trim() };
-      if (job.maintenance_type === "corrective") body.resolved = f.resolved;
-      const r = await submit({
-        kind: "complete", scope: `job:${id}`, label: "Complete visit",
-        method: "post", url: `/maintenance/visits/${current.id}/complete/`, json: body,
-        meta: { visit: current.id, remarks: notes.trim(), ...(job.maintenance_type === "corrective" ? { resolved: f.resolved } : {}) },
-      });
-      said(r.queued, issued.length ? "Sent for review · return unused components after check-out" : "Sent for review");
-    }, "Could not complete this visit");
-  };
   // Back from site: what was used, the web's way. A stock line says how
   // many (all of it unless told otherwise); a unique line names the serials
   // going back. The rest goes to the store's receiving.
@@ -478,7 +575,11 @@ export default function JobScreen() {
           <ScanSheet open={scan} expect={job.device_code ?? ""} onScan={verify} onClose={() => setScan(false)} />
 
           {closed ? <Note>This job is {job.status_display.toLowerCase()}.</Note> : null}
-          {current?.review_decision === "unresolved" && current.review_note ? <Note tone="bad">Marked unresolved: {current.review_note}</Note> : null}
+          {current && past[past.length - 1]?.review_decision === "unresolved" ? (
+            <Note tone="bad">
+              Visit {past[past.length - 1].sequence} was not approved{past[past.length - 1].review_reason ? `: ${past[past.length - 1].review_reason?.trim().replace(/\.+$/, "")}` : ""}. This is visit {current.sequence}; the earlier one is under Visit details below.
+            </Note>
+          ) : null}
 
           <Section title="The visit, step by step">
             <FlowStep n={1} title="Components for this visit" state={componentsDone ? "done" : "now"}>
@@ -554,7 +655,7 @@ export default function JobScreen() {
                   <TextInput style={[styles.input, { height: 84, textAlignVertical: "top" }]} multiline editable={canAct && started && !workDone} placeholder={job.maintenance_type === "corrective" ? "What was done" : "What was checked, cleaned or replaced, and anything observed"} placeholderTextColor={colors.textLight} value={notes} onChangeText={setNotes} />
                   {canAct && started && !workDone ? (
                     <>
-                      <Text style={styles.hint}>Both are needed to complete the visit: what was done, and the After photo.</Text>
+                      <Text style={styles.hint}>Both are needed before you check out: what was done, and the After photo.</Text>
                       <Button
                         title={after ? "Save work done" : "Save and take the After photo"}
                         icon={after ? "checkmark" : "camera"}
@@ -570,28 +671,32 @@ export default function JobScreen() {
                 </>
               ) : null}
             </FlowStep>
-            <FlowStep n={7} title="Complete visit" state={awaiting || closed ? "done" : stage === 7 ? "now" : "later"}>
-              {stage === 7 && canAct ? <Button title="Complete visit" icon="checkmark" variant="success" onPress={() => setFinish({ resolved: null })} /> : null}
-              {awaiting ? <Text style={styles.hint}>Waiting for the office to review the work.</Text> : null}
-            </FlowStep>
-            <FlowStep n={8} title="Check out" state={stage > 8 || (closed && !here) ? "done" : stage === 8 ? "now" : "later"}>
-              {stage === 8 && here ? <Button title="Check out of the site" icon="log-out-outline" variant="secondary" loading={busy === "presence"} onPress={askOnCheckout} /> : null}
+            <FlowStep n={7} title="Check out" state={(awaiting && !here) || closed ? "done" : stage === 7 ? "now" : "later"}>
+              {stage === 7 && mine && here ? (
+                <>
+                  {!awaiting ? <Text style={styles.hint}>Hands the visit in for review with the Work done and the After photo, and checks you out.</Text> : null}
+                  <Button title="Check out" icon="log-out-outline" variant="success" loading={busy === "presence"} onPress={askOnCheckout} />
+                </>
+              ) : null}
             </FlowStep>
             {hadIssued ? (
-              <FlowStep n={9} title="Return unused components" state={issued.length === 0 ? "done" : stage === 9 ? "now" : "later"}>
+              <FlowStep n={8} title="Return unused components" state={issued.length === 0 ? "done" : stage === 8 ? "now" : "later"}>
                 {issued.length > 0 && mine && current && (started || awaiting) ? (
                   <>
                     <Text style={styles.hint}>
-                      {stage === 9
+                      {stage === 8
                         ? "Say what was used. Anything else goes back to the store and waits in receiving to be checked in."
                         : "After check-out: say what was used. Anything else goes back to the store."}
                     </Text>
-                    {stage === 9 ? <Button title="Return unused components" icon="return-down-back-outline" loading={busy === "return"} onPress={() => setGiveBack({ used: {}, back: {} })} /> : null}
+                    {stage === 8 ? <Button title="Return unused components" icon="return-down-back-outline" loading={busy === "return"} onPress={() => setGiveBack({ used: {}, back: {} })} /> : null}
                   </>
                 ) : null}
                 {issued.length === 0 ? <Text style={styles.hint}>Accounted for: see the lines in step 1.</Text> : null}
               </FlowStep>
             ) : null}
+            <FlowStep n={hadIssued ? 9 : 8} title="Office review" state={closed ? "done" : awaiting ? "now" : "later"}>
+              {awaiting ? <Text style={styles.hint}>Waiting for the office to review the work. If it is not approved, the job comes back as a new visit.</Text> : null}
+            </FlowStep>
           </Section>
 
           {/* Bought on site */}
@@ -616,7 +721,7 @@ export default function JobScreen() {
                 </View>
               ))}
               {mine && !closed ? (
-                <Button title="Record a purchase" small variant="secondary" icon="cart-outline" loading={busy === "buy"} onPress={() => openBuy(false)} />
+                <Button title="Record a purchase" small variant="secondary" icon="cart-outline" loading={busy === "buy"} onPress={openBuy} />
               ) : null}
             </Section>
           ) : null}
@@ -637,15 +742,7 @@ export default function JobScreen() {
 
           {past.length ? (
             <Section title={job.maintenance_type === "corrective" ? "Visit details" : "Past visits"}>
-              {past.map((v) => (
-                <View key={v.id} style={styles.part}>
-                  <View style={{ flex: 1 }}>
-                    <Text style={styles.partName}>#{v.sequence}{v.completed_at ? ` · carried out ${v.completed_at.slice(0, 10)}` : ""}</Text>
-                    {v.remarks ? <Text style={styles.hint}>{v.remarks}</Text> : null}
-                  </View>
-                  <Pill label={v.status_display} fg={colors.textMuted} bg={colors.secondary} />
-                </View>
-              ))}
+              {[...past].reverse().map((v) => <VisitLog key={v.id} v={v} parts={parts} corrective={corrective} />)}
             </Section>
           ) : null}
         </ScrollView>
@@ -691,20 +788,39 @@ export default function JobScreen() {
           </View>
         </Modal>
 
-        {/* At check-out: was anything bought for this job? */}
-        <Modal visible={askBought} transparent animationType="slide" onRequestClose={() => setAskBought(false)}>
+        {/* Check out: hands the visit in when the work is done, and asks about purchases */}
+        <Modal visible={!!leaving && !buy} transparent animationType="slide" onRequestClose={() => setLeaving(null)}>
           <View style={styles.modalWrap}>
             <View style={styles.modalCard}>
-              <Text style={styles.modalTitle}>Did you purchase anything for this job?</Text>
-              <Text style={styles.hint}>A component bought in the market is recorded against the job with its receipt, the amount and a photo.</Text>
-              {(current?.purchases ?? []).map((p) => (
-                <Text key={p.id} style={styles.hint}>· {p.description} × {p.quantity} — PKR {Number(p.amount).toLocaleString()}</Text>
-              ))}
-              <View style={{ gap: 8 }}>
-                <Button title={(current?.purchases ?? []).length ? "Yes, record another" : "Yes, record it"} icon="cart-outline" onPress={() => openBuy(true)} />
-                <Button title={(current?.purchases ?? []).length ? "That is all, check out" : "No, check out"} variant="secondary" icon="log-out-outline"
-                  onPress={() => { setAskBought(false); clockOut(); }} />
-                <Button title="Cancel" small variant="ghost" onPress={() => setAskBought(false)} />
+              <Text style={styles.modalTitle}>Check out</Text>
+              {handIn ? (
+                <Text style={styles.hint}>
+                  The visit goes to the office for review with what you wrote under Work done and the After photo. If it is not approved, the job comes back as a new visit.
+                  {issued.length ? " Unused components go back after you check out." : ""}
+                </Text>
+              ) : started ? (
+                <Note tone="warn">Work done is not finished, so this visit stays In Progress. Check in again to finish it.</Note>
+              ) : null}
+              {handIn && corrective ? (
+                <View>
+                  <FieldLabel>Is the fault fixed?</FieldLabel>
+                  <View style={{ flexDirection: "row", gap: 8 }}>
+                    <Button title="Yes, it is fixed" small style={{ flex: 1 }} variant={leaving?.resolved === true ? "success" : "secondary"} icon="checkmark" onPress={() => setLeaving((f) => f && { ...f, resolved: true })} />
+                    <Button title="No, it is not" small style={{ flex: 1 }} variant={leaving?.resolved === false ? "danger" : "secondary"} icon="close" onPress={() => setLeaving((f) => f && { ...f, resolved: false })} />
+                  </View>
+                </View>
+              ) : null}
+              <View style={{ gap: 6 }}>
+                <FieldLabel>Did you purchase anything for this job?</FieldLabel>
+                <Text style={styles.hint}>A component bought in the market is recorded against the job with its receipt, the amount and a photo.</Text>
+                {(current?.purchases ?? []).map((p) => (
+                  <Text key={p.id} style={styles.hint}>· {p.description} × {p.quantity} — {money(Number(p.amount))}</Text>
+                ))}
+                <Button title={(current?.purchases ?? []).length ? "Yes, record another" : "Yes, record it"} small variant="secondary" icon="cart-outline" onPress={openBuy} />
+              </View>
+              <View style={styles.modalActions}>
+                <Button title="Cancel" small variant="secondary" onPress={() => setLeaving(null)} />
+                <Button title={(current?.purchases ?? []).length ? "That is all, check out" : "No, check out"} small variant="success" icon="log-out-outline" onPress={leave} />
               </View>
             </View>
           </View>
@@ -757,31 +873,8 @@ export default function JobScreen() {
               </ScrollView>
               <Text style={styles.hint}>All four are needed: what it is, the amount, the receipt and the photo.</Text>
               <View style={styles.modalActions}>
-                <Button title="Cancel" small variant="secondary" onPress={() => { const back = buy?.fromCheckout; setBuy(null); if (back) setAskBought(true); }} />
+                <Button title="Cancel" small variant="secondary" onPress={() => setBuy(null)} />
                 <Button title="Save purchase" small icon="checkmark" onPress={saveBuy} />
-              </View>
-            </View>
-          </View>
-        </Modal>
-
-        {/* Finish */}
-        <Modal visible={!!finish} transparent animationType="slide" onRequestClose={() => setFinish(null)}>
-          <View style={styles.modalWrap}>
-            <View style={styles.modalCard}>
-              <Text style={styles.modalTitle}>{job.maintenance_type === "corrective" ? "Complete this visit" : "Complete this round"}</Text>
-              {job.maintenance_type === "corrective" ? (
-                <View>
-                  <FieldLabel>Is the fault fixed?</FieldLabel>
-                  <View style={{ flexDirection: "row", gap: 8 }}>
-                    <Button title="Yes, it is fixed" small style={{ flex: 1 }} variant={finish?.resolved === true ? "success" : "secondary"} icon="checkmark" onPress={() => setFinish((f) => f && { ...f, resolved: true })} />
-                    <Button title="No, it is not" small style={{ flex: 1 }} variant={finish?.resolved === false ? "danger" : "secondary"} icon="close" onPress={() => setFinish((f) => f && { ...f, resolved: false })} />
-                  </View>
-                </View>
-              ) : null}
-              <Text style={styles.hint}>What you wrote under Work done goes in with it. The After photo is already on the visit.{issued.length ? " Unused components go back after you check out." : ""}</Text>
-              <View style={styles.modalActions}>
-                <Button title="Cancel" small variant="secondary" onPress={() => setFinish(null)} />
-                <Button title="Send for review" small variant="success" onPress={complete} />
               </View>
             </View>
           </View>
@@ -865,6 +958,9 @@ const styles = StyleSheet.create({
   input: { borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, paddingHorizontal: spacing.md, paddingVertical: 10, fontSize: font.body, color: colors.text, backgroundColor: colors.bg, fontFamily: "Urbanist_500Medium" },
   qtyBox: { flexDirection: "row", alignItems: "center", gap: 8, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, paddingRight: spacing.md, backgroundColor: colors.bg },
   qtyInput: { flex: 1, paddingHorizontal: spacing.md, paddingVertical: 10, fontSize: font.body, color: colors.text, fontFamily: "Urbanist_500Medium" },
+  logBlock: { paddingVertical: 10, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: colors.border, gap: 2 },
+  logText: { fontSize: font.sm, color: colors.text, lineHeight: 19 },
+  logPhoto: { width: 72, height: 72, borderRadius: radius.sm, backgroundColor: colors.border },
   buyThumb: { width: 48, height: 48, borderRadius: radius.sm, backgroundColor: colors.border },
   settle: { gap: 6, paddingTop: 8, borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: colors.border },
   serial: { borderRadius: radius.pill, paddingHorizontal: 10, paddingVertical: 5, backgroundColor: colors.secondary },
