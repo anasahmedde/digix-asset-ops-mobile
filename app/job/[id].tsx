@@ -5,6 +5,7 @@ import { Image, Modal, Pressable, RefreshControl, ScrollView, StyleSheet, TextIn
 import { SafeAreaView } from "react-native-safe-area-context";
 
 import { FlowStep, Note, PresenceCard, Section, Wash } from "@/components/field";
+import { OutboxBanner } from "@/components/outbox-banner";
 import { ScanSheet } from "@/components/scan-sheet";
 import { Text } from "@/components/text";
 import { Button, Card, FieldLabel, Pill, Row, Select } from "@/components/ui";
@@ -13,7 +14,8 @@ import api from "@/lib/api";
 import { Presence, checkIn, checkOut, getPresence, onSite } from "@/lib/attendance";
 import { mediaUrl } from "@/lib/format";
 import { getCurrentLocation, requestForegroundLocationPermission } from "@/lib/location";
-import { asUpload, pickFromLibrary, takePhoto } from "@/lib/photos";
+import { Op, QUEUED_NOTE, cached, discard, isNetworkError, pendingFor, submit } from "@/lib/offline";
+import { asFile, asUpload, pickFromLibrary, takePhoto } from "@/lib/photos";
 import * as SecureStore from "@/lib/secure-store";
 import { toast } from "@/lib/toast";
 import { getCurrentUser } from "@/lib/user";
@@ -60,6 +62,40 @@ const PART_TONE: Record<string, { fg: string; bg: string }> = {
   rejected: { fg: "#991b1b", bg: colors.dangerSoft }, cancelled: { fg: colors.textMuted, bg: colors.secondary },
 };
 
+/** What this phone did on the job without signal, shown as if it had happened. */
+function overlay(visits: Visit[], parts: Part[], waiting: Op[]): { visits: Visit[]; parts: Part[] } {
+  const vs = visits.map((v) => ({ ...v, visit_photos: [...(v.visit_photos ?? [])], purchases: [...(v.purchases ?? [])] }));
+  const ps = parts.map((p) => ({ ...p }));
+  for (const op of waiting) {
+    const v = vs.find((x) => x.id === op.meta?.visit);
+    if (!v) continue;
+    const file = (field: string) => op.form?.files.find((f) => f.field === field)?.uri ?? "";
+    if (op.kind === "verify") v.asset_verified_at = op.at;
+    else if (op.kind === "photo") {
+      const kind = String(op.meta?.kind);
+      if (kind === "before") v.has_before_photo = true;
+      if (kind === "after") {
+        v.has_after_photo = true;
+        if (op.meta?.notes !== undefined) v.notes = String(op.meta.notes);
+      }
+      v.visit_photos.push({ id: op.id, kind, image: file("image"), caption: "" });
+    } else if (op.kind === "start") { v.status = "in_progress"; v.started_at = op.at; }
+    else if (op.kind === "notes") v.notes = String(op.meta?.notes ?? "");
+    else if (op.kind === "complete") {
+      v.status = "awaiting_review"; v.completed_at = op.at; v.remarks = String(op.meta?.remarks ?? "");
+      if (op.meta && "resolved" in op.meta) v.resolved = op.meta.resolved as boolean | null;
+    } else if (op.kind === "purchase") {
+      v.purchases.push({ ...(op.meta?.purchase as Purchase), id: op.id, receipt: file("receipt"), photo: file("photo"), created_at: op.at });
+    } else if (op.kind === "return") {
+      for (const row of (op.meta?.rows ?? []) as { part_request: string; used: number }[]) {
+        const p = ps.find((x) => x.id === row.part_request);
+        if (p) { p.quantity_used = row.used; p.quantity_returned = (p.quantity_issued ?? 0) - row.used; }
+      }
+    }
+  }
+  return { visits: vs, parts: ps };
+}
+
 export default function JobScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const [job, setJob] = useState<Schedule | null>(null);
@@ -72,6 +108,9 @@ export default function JobScreen() {
   const [busy, setBusy] = useState<string | null>(null);
   const [notes, setNotes] = useState("");
   const [scan, setScan] = useState(false);
+  // Without signal the screen shows the job as last loaded, plus what is waiting.
+  const [stale, setStale] = useState(false);
+  const [waitingIds, setWaitingIds] = useState<Set<string>>(new Set());
   // The web's "Components for this visit" form: Kind, Component, Quantity.
   const [partForm, setPartForm] = useState<{ kind: "generic" | "unique"; pick: string; qty: string } | null>(null);
   const [stock, setStock] = useState<StockOption[] | null>(null);
@@ -95,20 +134,29 @@ export default function JobScreen() {
   const load = useCallback(async () => {
     try {
       const [s, v, p, pr] = await Promise.allSettled([
-        api.get(`/maintenance/schedules/${id}/`),
-        api.get("/maintenance/visits/", { params: { schedule: id, ordering: "sequence", page_size: 50 } }),
-        api.get("/maintenance/part-requests/", { params: { schedule: id, page_size: 100 } }),
+        cached(`job-${id}`, async () => (await api.get(`/maintenance/schedules/${id}/`)).data as Schedule),
+        cached(`job-${id}-visits`, async () => {
+          const { data } = await api.get("/maintenance/visits/", { params: { schedule: id, ordering: "sequence", page_size: 50 } });
+          return (data.results ?? data) as Visit[];
+        }),
+        cached(`job-${id}-parts`, async () => {
+          const { data } = await api.get("/maintenance/part-requests/", { params: { schedule: id, page_size: 100 } });
+          return (data.results ?? data) as Part[];
+        }),
         getPresence(),
       ]);
-      if (s.status === "fulfilled") setJob(s.value.data);
+      const waiting = await pendingFor(`job:${id}`);
+      setWaitingIds(new Set(waiting.map((o) => o.id)));
+      if (s.status === "fulfilled") { setJob(s.value.data); setStale(!s.value.fresh); }
       if (v.status === "fulfilled") {
-        const rows: Visit[] = v.value.data.results ?? v.value.data;
+        const shown = overlay(v.value.data, p.status === "fulfilled" ? p.value.data : [], waiting);
+        const rows = shown.visits;
         setVisits(rows);
+        if (p.status === "fulfilled") setParts(shown.parts);
         // The write-up is the open visit's own, not the job's description.
         const open = [...rows].reverse().find((x) => x.status !== "completed" && x.status !== "skipped");
         setNotes((n) => n || open?.notes || "");
       }
-      if (p.status === "fulfilled") setParts(p.value.data.results ?? p.value.data);
       if (pr.status === "fulfilled") setPresence(pr.value);
     } finally {
       setLoading(false);
@@ -122,6 +170,7 @@ export default function JobScreen() {
   }, [load]);
 
   const fail = (err: unknown, fallback: string) => {
+    if (isNetworkError(err)) { toast.error("No signal. This one needs a connection - try again when you have one."); return; }
     const d = (err as { response?: { data?: Record<string, unknown> } }).response?.data;
     const first = d && (typeof d.detail === "string" ? d.detail : Object.values(d).flat().find((v) => typeof v === "string"));
     toast.error(typeof first === "string" ? first : fallback);
@@ -180,8 +229,18 @@ export default function JobScreen() {
     : 7;
 
   // -- actions
-  const clockIn = () => run("presence", async () => { if (!job.site) throw new Error("no site"); setPresence(await checkIn(job.site)); }, "This job has no site to check in at");
-  const clockOut = () => run("presence", async () => { setPresence(await checkOut(job.site)); toast.success("Checked out"); }, "Could not check out");
+  const said = (queued: boolean, done: string) => toast.success(queued ? `${done}. ${QUEUED_NOTE}` : done);
+  const clockIn = () => run("presence", async () => {
+    if (!job.site) throw new Error("no site");
+    const p = await checkIn(job.site, "", job.site_name);
+    setPresence(p);
+    said(!!p.queued, "Checked in");
+  }, "This job has no site to check in at");
+  const clockOut = () => run("presence", async () => {
+    const p = await checkOut(job.site);
+    setPresence(p);
+    said(!!p.queued, "Checked out");
+  }, "Could not check out");
   // Leaving the site: first, was anything bought for this job?
   const askOnCheckout = () => { if (mine && current && !closed) setAskBought(true); else clockOut(); };
   const openBuy = (fromCheckout = false) => {
@@ -198,47 +257,70 @@ export default function JobScreen() {
     const f = buy;
     setBuy(null);
     run("buy", async () => {
-      const fd = new FormData();
-      fd.append("visit", current.id);
-      fd.append("description", f.description.trim());
-      fd.append("quantity", String(Math.max(1, Number(f.quantity) || 1)));
-      fd.append("amount", amount.toFixed(2));
-      if (f.shop.trim()) fd.append("shop", f.shop.trim());
-      fd.append("receipt", f.receipt as unknown as Blob);
-      fd.append("photo", f.photo as unknown as Blob);
-      await api.post("/maintenance/purchases/", fd, { headers: { "Content-Type": "multipart/form-data" } });
-      toast.success("Purchase recorded");
+      const quantity = Math.max(1, Number(f.quantity) || 1);
+      const r = await submit({
+        kind: "purchase", scope: `job:${id}`, label: `Purchase: ${f.description.trim()}`,
+        method: "post", url: "/maintenance/purchases/",
+        form: {
+          fields: {
+            visit: current.id, description: f.description.trim(), quantity: String(quantity),
+            amount: amount.toFixed(2), ...(f.shop.trim() ? { shop: f.shop.trim() } : {}),
+          },
+          files: [
+            { ...(f.receipt as unknown as { uri: string; name: string; type: string }), field: "receipt" },
+            { ...(f.photo as unknown as { uri: string; name: string; type: string }), field: "photo" },
+          ],
+        },
+        meta: {
+          visit: current.id,
+          purchase: { description: f.description.trim(), quantity, amount: amount.toFixed(2), shop: f.shop.trim(), bought_by: me?.id ?? null, bought_by_name: null },
+        },
+      });
+      said(r.queued, "Purchase recorded");
       if (f.fromCheckout) setAskBought(true);
     }, "Could not record the purchase");
   };
   const removeBuy = (p: Purchase) => run(`buy-${p.id}`, async () => {
-    await api.delete(`/maintenance/purchases/${p.id}/`);
+    // Still on the phone: it simply never goes.
+    if (waitingIds.has(p.id)) await discard(p.id);
+    else await api.delete(`/maintenance/purchases/${p.id}/`);
     toast.success("Purchase taken back");
   }, "Could not take the purchase back");
   const photo = (kind: "before" | "after", withNotes?: string) => run(kind, async () => {
     if (!current) return;
     const a = await takePhoto();
     if (!a) return;
-    const fd = new FormData();
-    fd.append("kind", kind);
-    if (withNotes !== undefined) fd.append("notes", withNotes);
-    fd.append("image", asUpload(a, `${kind}.jpg`));
+    const fields: Record<string, string> = { kind };
+    if (withNotes !== undefined) fields.notes = withNotes;
     try {
       if (await requestForegroundLocationPermission()) {
         const l = await getCurrentLocation();
-        fd.append("latitude", l.latitude.toFixed(7)); fd.append("longitude", l.longitude.toFixed(7));
+        fields.latitude = l.latitude.toFixed(7); fields.longitude = l.longitude.toFixed(7);
       }
     } catch { /* no fix, no matter */ }
-    await api.post(`/maintenance/visits/${current.id}/photos/`, fd, { headers: { "Content-Type": "multipart/form-data" } });
-    toast.success(kind === "before" ? "Before photo added" : "After photo added");
+    const r = await submit({
+      kind: "photo", scope: `job:${id}`, label: kind === "before" ? "Before photo" : "After photo",
+      method: "post", url: `/maintenance/visits/${current.id}/photos/`,
+      form: { fields, files: [asFile(a, "image", `${kind}.jpg`)] },
+      meta: { visit: current.id, kind, ...(withNotes !== undefined ? { notes: withNotes } : {}) },
+    });
+    said(r.queued, kind === "before" ? "Before photo added" : "After photo added");
   }, "Could not upload that photo");
   const tone = (s: string) => PART_TONE[s] ?? { fg: colors.textMuted, bg: colors.secondary };
   const verify = (code: string) => {
     setScan(false);
     run("verify", async () => {
       if (!current) return;
-      await api.post(`/maintenance/visits/${current.id}/verify-asset/`, { code });
-      toast.success(`${job.device_code} confirmed`);
+      // Without signal the label is checked here, against the asset this job
+      // was loaded with; the server checks it again when it uploads.
+      const r = await submit({
+        kind: "verify", scope: `job:${id}`, label: `Scan ${job.device_code ?? "asset"}`,
+        method: "post", url: `/maintenance/visits/${current.id}/verify-asset/`, json: { code }, meta: { visit: current.id },
+      }, {
+        whenQueued: () => (code.trim().toUpperCase() === (job.device_code ?? "").toUpperCase()
+          ? null : `That label reads ${code.trim()}, not ${job.device_code}`),
+      });
+      said(r.queued, `${job.device_code} confirmed`);
     }, "That label is not this job's asset");
   };
   const start = () => run("start", async () => {
@@ -250,10 +332,20 @@ export default function JobScreen() {
         where = { latitude: l.latitude.toFixed(7), longitude: l.longitude.toFixed(7) };
       }
     } catch { /* ignore */ }
-    await api.post(`/maintenance/visits/${current.id}/start/`, where);
-    toast.success("Work started");
+    const r = await submit({
+      kind: "start", scope: `job:${id}`, label: "Start work",
+      method: "post", url: `/maintenance/visits/${current.id}/start/`, json: where, meta: { visit: current.id },
+    });
+    said(r.queued, "Work started");
   }, "Could not start this visit");
-  const saveNotes = () => run("notes", async () => { if (current) await api.post(`/maintenance/visits/${current.id}/notes/`, { notes }); toast.success("Saved"); }, "Could not save the work done");
+  const saveNotes = () => run("notes", async () => {
+    if (!current) return;
+    const r = await submit({
+      kind: "notes", scope: `job:${id}`, label: "Work done",
+      method: "post", url: `/maintenance/visits/${current.id}/notes/`, json: { notes }, meta: { visit: current.id, notes },
+    });
+    said(r.queued, "Saved");
+  }, "Could not save the work done");
   // The same list the web offers, loaded once: counted stock and
   // individually tracked units, each with what is on the shelf.
   const loadStock = async () => {
@@ -297,8 +389,12 @@ export default function JobScreen() {
     run("complete", async () => {
       const body: Record<string, unknown> = { remarks: notes.trim() };
       if (job.maintenance_type === "corrective") body.resolved = f.resolved;
-      await api.post(`/maintenance/visits/${current.id}/complete/`, body);
-      toast.success(issued.length ? "Sent for review · return unused components after check-out" : "Sent for review");
+      const r = await submit({
+        kind: "complete", scope: `job:${id}`, label: "Complete visit",
+        method: "post", url: `/maintenance/visits/${current.id}/complete/`, json: body,
+        meta: { visit: current.id, remarks: notes.trim(), ...(job.maintenance_type === "corrective" ? { resolved: f.resolved } : {}) },
+      });
+      said(r.queued, issued.length ? "Sent for review · return unused components after check-out" : "Sent for review");
     }, "Could not complete this visit");
   };
   // Back from site: what was used, the web's way. A stock line says how
@@ -316,8 +412,13 @@ export default function JobScreen() {
     const rows = issued.map((p) => ({ part_request: p.id, used: usedOn(p), serials: p.unit_type ? giveBack.back[p.id] ?? [] : [] }));
     setGiveBack(null);
     run("return", async () => {
-      const { data } = await api.post(`/maintenance/visits/${current.id}/return-parts/`, { parts_settlement: rows });
-      toast.success(data.return_grn ? `Going back to the store · ${data.return_grn}` : "Nothing going back");
+      const r = await submit({
+        kind: "return", scope: `job:${id}`, label: "Return unused components",
+        method: "post", url: `/maintenance/visits/${current.id}/return-parts/`, json: { parts_settlement: rows },
+        meta: { visit: current.id, rows },
+      });
+      const grn = (r.data as { return_grn?: string } | undefined)?.return_grn;
+      said(r.queued, grn ? `Going back to the store · ${grn}` : r.queued ? "Return recorded" : "Nothing going back");
     }, "Could not record the return");
   };
   const sayNone = (none: boolean) => {
@@ -347,6 +448,10 @@ export default function JobScreen() {
     <Wash>
       <SafeAreaView style={{ flex: 1 }} edges={["bottom"]}>
         <ScrollView contentContainerStyle={{ padding: spacing.lg, paddingBottom: spacing.xxxl }} refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => { setRefreshing(true); load(); }} />}>
+          <OutboxBanner scope={`job:${id}`} />
+          {stale ? (
+            <Note tone="warn">No signal. This is the job as it was last loaded; what you do now is saved on this phone and uploads with its time when there is signal.</Note>
+          ) : null}
           <View style={styles.headRow}>
             <View style={{ flex: 1 }}>
               <Text style={styles.code}>{job.ticket_number ?? job.device_code ?? "Preventive"}</Text>

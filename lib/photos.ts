@@ -20,3 +20,8 @@ export async function pickFromLibrary(): Promise<ImagePicker.ImagePickerAsset | 
 export function asUpload(asset: ImagePicker.ImagePickerAsset, name = "photo.jpg") {
   return { uri: asset.uri, name: asset.fileName ?? name, type: asset.mimeType ?? "image/jpeg" } as unknown as Blob;
 }
+
+/** A photo as the outbox sends it: kept on the phone until there is signal. */
+export function asFile(asset: ImagePicker.ImagePickerAsset, field: string, name = "photo.jpg") {
+  return { field, uri: asset.uri, name: asset.fileName ?? name, type: asset.mimeType ?? "image/jpeg" };
+}

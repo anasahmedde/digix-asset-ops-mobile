@@ -1,23 +1,43 @@
 import api from "./api";
 import { getCurrentLocation, requestForegroundLocationPermission } from "./location";
+import { cached, pendingFor, submit } from "./offline";
 
-/** Where the technician is clocked in, as the server has it. */
+/** Where the technician is clocked in, as the server has it - plus anything
+ *  done on this phone without signal that has not reached it yet. */
 export interface Presence {
   checked_in: boolean;
   site: string | null;
   site_name: string | null;
   since: string | null;
+  /** True when the last check-in or check-out is still waiting to upload. */
+  pending?: boolean;
 }
 
+const NOWHERE: Presence = { checked_in: false, site: null, site_name: null, since: null };
+
 export async function getPresence(): Promise<Presence> {
-  const { data } = await api.get("/attendance/records/status/");
-  const last = data.last;
-  return {
-    checked_in: !!data.checked_in,
-    site: data.checked_in ? last?.site ?? null : null,
-    site_name: data.checked_in ? last?.site_name ?? null : null,
-    since: data.checked_in ? last?.created_at ?? null : null,
-  };
+  let base: Presence;
+  try {
+    ({ data: base } = await cached("presence", async () => {
+      const { data } = await api.get("/attendance/records/status/");
+      const last = data.last;
+      return {
+        checked_in: !!data.checked_in,
+        site: data.checked_in ? last?.site ?? null : null,
+        site_name: data.checked_in ? last?.site_name ?? null : null,
+        since: data.checked_in ? last?.created_at ?? null : null,
+      } as Presence;
+    }));
+  } catch {
+    base = NOWHERE;
+  }
+  // What this phone did since, and has not sent yet, is where the person is.
+  for (const op of await pendingFor("attendance")) {
+    base = op.kind === "checkin"
+      ? { checked_in: true, site: String(op.meta?.site ?? ""), site_name: (op.meta?.site_name as string) ?? null, since: op.at, pending: true }
+      : { ...NOWHERE, pending: true };
+  }
+  return base;
 }
 
 async function whereami() {
@@ -31,28 +51,25 @@ async function whereami() {
   }
 }
 
-/** Clock in at a site. The job's buttons open only once this has happened there. */
-export async function checkIn(site: string, note = ""): Promise<Presence> {
+/** Clock in at a site - with or without signal. The job's buttons open once
+ *  this has happened there; without signal it uploads later, dated now. */
+export async function checkIn(site: string, note = "", siteName: string | null = null): Promise<Presence & { queued?: boolean }> {
   const where = await whereami();
-  const { data } = await api.post("/attendance/records/", { check_type: "check_in", site, note, ...where });
-  // The record just saved already says where the person is. If reading it
-  // back fails, the check-in still happened: report it as done rather than
-  // as an error, which had people tapping again and checking in twice.
-  try {
-    return await getPresence();
-  } catch {
-    return { checked_in: true, site, site_name: data?.site_name ?? null, since: data?.created_at ?? null };
-  }
+  const r = await submit({
+    kind: "checkin", scope: "attendance", label: siteName ? `Check in at ${siteName}` : "Check in",
+    method: "post", url: "/attendance/records/", json: { check_type: "check_in", site, note, ...where },
+    meta: { site, site_name: siteName },
+  });
+  return { ...(await getPresence()), queued: r.queued };
 }
 
-export async function checkOut(site: string | null, note = ""): Promise<Presence> {
+export async function checkOut(site: string | null, note = ""): Promise<Presence & { queued?: boolean }> {
   const where = await whereami();
-  await api.post("/attendance/records/", { check_type: "check_out", site, note, ...where });
-  try {
-    return await getPresence();
-  } catch {
-    return { checked_in: false, site: null, site_name: null, since: null };
-  }
+  const r = await submit({
+    kind: "checkout", scope: "attendance", label: "Check out",
+    method: "post", url: "/attendance/records/", json: { check_type: "check_out", site, note, ...where },
+  });
+  return { ...(await getPresence()), queued: r.queued };
 }
 
 /** True when the person is clocked in at this very site. */

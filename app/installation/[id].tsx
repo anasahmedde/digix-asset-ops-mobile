@@ -5,6 +5,7 @@ import { Alert, Image, Modal, Pressable, RefreshControl, ScrollView, StyleSheet,
 import { SafeAreaView } from "react-native-safe-area-context";
 
 import { FlowStep, Note, PresenceCard, Section, Wash } from "@/components/field";
+import { OutboxBanner } from "@/components/outbox-banner";
 import { ScanSheet } from "@/components/scan-sheet";
 import { Text } from "@/components/text";
 import { Button, Card, Pill, Row } from "@/components/ui";
@@ -12,7 +13,8 @@ import { colors, font, radius, spacing } from "@/constants/theme";
 import api from "@/lib/api";
 import { Presence, checkIn, checkOut, getPresence, onSite } from "@/lib/attendance";
 import { mediaUrl } from "@/lib/format";
-import { asUpload, pickFromLibrary, takePhoto } from "@/lib/photos";
+import { Op, QUEUED_NOTE, cached, isNetworkError, pendingFor, submit } from "@/lib/offline";
+import { asFile, asUpload, pickFromLibrary, takePhoto } from "@/lib/photos";
 import { toast } from "@/lib/toast";
 import { getCurrentUser } from "@/lib/user";
 
@@ -49,6 +51,36 @@ const STEP_TONE: Record<string, { fg: string; bg: string }> = {
   skipped: { fg: colors.textLight, bg: colors.secondary },
 };
 
+/** What this phone did on the installation without signal, shown as done. */
+function overlay(inst: Installation, waiting: Op[]): Installation {
+  const out: Installation = { ...inst, steps: inst.steps.map((x) => ({ ...x })), photos: [...inst.photos] };
+  for (const op of waiting) {
+    const file = (field: string) => op.form?.files.find((f) => f.field === field)?.uri ?? "";
+    if (op.kind === "verify") out.asset_verified_at = op.at;
+    else if (op.kind === "step") {
+      const st = out.steps.find((x) => x.id === op.meta?.step);
+      if (!st) continue;
+      st.status = String(op.meta?.status);
+      st.status_display = String(op.meta?.status_display ?? st.status);
+      if (st.status === "in_progress" && !st.started_at) st.started_at = op.at;
+      if (st.status === "completed") st.completed_at = op.at;
+    } else if (op.kind === "activate") {
+      out.device_status = "active";
+      out.photos.push({ id: op.id, photo_type: "post_install", image: file("photos"), caption: "" });
+    } else if (op.kind === "handover") {
+      out.handover = {
+        id: op.id, handover_date: op.at.slice(0, 10), accepted_by_name: String(op.meta?.accepted_by_name ?? ""),
+        acceptance_notes: String(op.meta?.acceptance_notes ?? ""), client_name: "",
+      };
+    }
+  }
+  return out;
+}
+
+const STATUS_WORDS: Record<string, string> = {
+  not_started: "Not Started", in_progress: "In Progress", on_hold: "On Hold", completed: "Completed", skipped: "Skipped",
+};
+
 export default function InstallationScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const [inst, setInst] = useState<Installation | null>(null);
@@ -58,13 +90,20 @@ export default function InstallationScreen() {
   const [refreshing, setRefreshing] = useState(false);
   const [busy, setBusy] = useState<string | null>(null);
   const [scan, setScan] = useState(false);
+  const [stale, setStale] = useState(false);
   const [stepForm, setStepForm] = useState<{ type: string; label: string } | null>(null);
   const [handoverForm, setHandoverForm] = useState<{ name: string; notes: string; doc: ReturnType<typeof asUpload> | null; docName: string } | null>(null);
 
   const load = useCallback(async () => {
     try {
-      const [i, p] = await Promise.allSettled([api.get(`/sites/installations/${id}/`), getPresence()]);
-      if (i.status === "fulfilled") setInst(i.value.data);
+      const [i, p] = await Promise.allSettled([
+        cached(`inst-${id}`, async () => (await api.get(`/sites/installations/${id}/`)).data as Installation),
+        getPresence(),
+      ]);
+      if (i.status === "fulfilled") {
+        setInst(overlay(i.value.data, await pendingFor(`inst:${id}`)));
+        setStale(!i.value.fresh);
+      }
       if (p.status === "fulfilled") setPresence(p.value);
     } finally {
       setLoading(false);
@@ -78,6 +117,7 @@ export default function InstallationScreen() {
   }, [load]);
 
   const fail = (err: unknown, fallback: string) => {
+    if (isNetworkError(err)) { toast.error("No signal. This one needs a connection - try again when you have one."); return; }
     const d = (err as { response?: { data?: Record<string, unknown> } }).response?.data;
     const first = d && (typeof d.detail === "string" ? d.detail : Object.values(d).flat().find((v) => typeof v === "string"));
     toast.error(typeof first === "string" ? first : fallback);
@@ -113,7 +153,15 @@ export default function InstallationScreen() {
   const stage: 1 | 2 | 3 | 4 | 5 | 6 = !here && !inst.completed_at ? 1 : !verified && !inst.completed_at ? 2 : !allDone ? 3 : !isLive ? 4 : !inst.handover ? 5 : 6;
 
   // -- the actions
-  const setStep = (s: Step, status: string) => run(s.id, async () => { await api.patch(`/sites/installation-steps/${s.id}/`, { status }); }, "Failed to update step");
+  const said = (queued: boolean, done: string) => toast.success(queued ? `${done}. ${QUEUED_NOTE}` : done);
+  const setStep = (s: Step, status: string) => run(s.id, async () => {
+    const r = await submit({
+      kind: "step", scope: `inst:${id}`, label: `${s.custom_label || s.step_type_display}: ${STATUS_WORDS[status] ?? status}`,
+      method: "patch", url: `/sites/installation-steps/${s.id}/`, json: { status },
+      meta: { step: s.id, status, status_display: STATUS_WORDS[status] ?? status },
+    });
+    if (r.queued) toast.success(QUEUED_NOTE);
+  }, "Failed to update step");
   const removeStep = (s: Step) => Alert.alert("Remove this step from the checklist?", s.custom_label || s.step_type_display, [
     { text: "Keep", style: "cancel" },
     { text: "Remove", style: "destructive", onPress: () => run(s.id, async () => { await api.delete(`/sites/installation-steps/${s.id}/`); }, "Could not remove the step") },
@@ -128,17 +176,25 @@ export default function InstallationScreen() {
   const verify = (code: string) => {
     setScan(false);
     run("verify", async () => {
-      await api.post(`/sites/installations/${inst.id}/verify-asset/`, { code });
-      toast.success(`${inst.device_code} confirmed`);
+      const r = await submit({
+        kind: "verify", scope: `inst:${id}`, label: `Scan ${inst.device_code}`,
+        method: "post", url: `/sites/installations/${inst.id}/verify-asset/`, json: { code },
+      }, {
+        whenQueued: () => (code.trim().toUpperCase() === inst.device_code.toUpperCase()
+          ? null : `That label reads ${code.trim()}, not ${inst.device_code}`),
+      });
+      said(r.queued, `${inst.device_code} confirmed`);
     }, "That label is not this installation's asset");
   };
   const activate = () => run("activate", async () => {
     const a = await takePhoto();
     if (!a) return;
-    const fd = new FormData();
-    fd.append("photos", asUpload(a, "live.jpg"));
-    await api.post(`/sites/installations/${inst.id}/activate/`, fd, { headers: { "Content-Type": "multipart/form-data" } });
-    toast.success("Asset marked Active — the photo is on the asset too");
+    const r = await submit({
+      kind: "activate", scope: `inst:${id}`, label: "Mark Active",
+      method: "post", url: `/sites/installations/${inst.id}/activate/`,
+      form: { fields: {}, files: [asFile(a, "photos", "live.jpg")] },
+    });
+    said(r.queued, "Asset marked Active — the photo is on the asset too");
   }, "Failed to activate the asset");
   const submitHandover = () => {
     if (!handoverForm) return;
@@ -147,16 +203,28 @@ export default function InstallationScreen() {
     const f = handoverForm;
     setHandoverForm(null);
     run("handover", async () => {
-      const fd = new FormData();
-      fd.append("accepted_by_name", f.name.trim());
-      if (f.notes.trim()) fd.append("acceptance_notes", f.notes.trim());
-      fd.append("signed_document", f.doc as Blob);
-      await api.post(`/sites/installations/${inst.id}/handover/`, fd, { headers: { "Content-Type": "multipart/form-data" } });
-      toast.success("Handover recorded");
+      const r = await submit({
+        kind: "handover", scope: `inst:${id}`, label: "Record Handover",
+        method: "post", url: `/sites/installations/${inst.id}/handover/`,
+        form: {
+          fields: { accepted_by_name: f.name.trim(), ...(f.notes.trim() ? { acceptance_notes: f.notes.trim() } : {}) },
+          files: [{ ...(f.doc as unknown as { uri: string; name: string; type: string }), field: "signed_document" }],
+        },
+        meta: { accepted_by_name: f.name.trim(), acceptance_notes: f.notes.trim() },
+      });
+      said(r.queued, "Handover recorded");
     }, "Failed to record handover");
   };
-  const clockIn = () => run("presence", async () => { setPresence(await checkIn(inst.site)); }, "Could not check in");
-  const clockOut = () => run("presence", async () => { setPresence(await checkOut(inst.site)); toast.success("Checked out"); }, "Could not check out");
+  const clockIn = () => run("presence", async () => {
+    const p = await checkIn(inst.site, "", inst.site_name);
+    setPresence(p);
+    said(!!p.queued, "Checked in");
+  }, "Could not check in");
+  const clockOut = () => run("presence", async () => {
+    const p = await checkOut(inst.site);
+    setPresence(p);
+    said(!!p.queued, "Checked out");
+  }, "Could not check out");
 
   return (
     <Wash>
@@ -165,6 +233,10 @@ export default function InstallationScreen() {
           contentContainerStyle={{ padding: spacing.lg, paddingBottom: spacing.xxxl }}
           refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => { setRefreshing(true); load(); }} />}
         >
+          <OutboxBanner scope={`inst:${id}`} />
+          {stale ? (
+            <Note tone="warn">No signal. This is the installation as it was last loaded; what you do now is saved on this phone and uploads with its time when there is signal.</Note>
+          ) : null}
           <View style={styles.headRow}>
             <View style={{ flex: 1 }}>
               <Text style={styles.code}>{inst.device_code}</Text>

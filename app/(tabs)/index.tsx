@@ -5,6 +5,7 @@ import { Pressable, RefreshControl, ScrollView, StyleSheet, View } from "react-n
 import { SafeAreaView } from "react-native-safe-area-context";
 
 import { Wash } from "@/components/field";
+import { OutboxBanner } from "@/components/outbox-banner";
 import { Text } from "@/components/text";
 import { Avatar, Button, Card, IconButton, Loading, Pill } from "@/components/ui";
 import { colors, font, radius, spacing } from "@/constants/theme";
@@ -12,6 +13,7 @@ import api from "@/lib/api";
 import { Presence, checkOut, getPresence } from "@/lib/attendance";
 import { greeting, timeAgo } from "@/lib/format";
 import { InstallationJob, MaintenanceJob, isOpenInstallation, isOpenMaintenance, myInstallations, myMaintenance } from "@/lib/jobs";
+import { QUEUED_NOTE } from "@/lib/offline";
 import { toast } from "@/lib/toast";
 import { User } from "@/lib/types";
 import { getCurrentUser } from "@/lib/user";
@@ -50,8 +52,9 @@ export default function TodayScreen() {
   async function leaveSite() {
     setBusy(true);
     try {
-      setPresence(await checkOut(presence?.site ?? null));
-      toast.success("Checked out");
+      const p = await checkOut(presence?.site ?? null);
+      setPresence(p);
+      toast.success(p.queued ? `Checked out. ${QUEUED_NOTE}` : "Checked out");
     } catch {
       toast.error("Could not check out");
     } finally {
@@ -83,6 +86,8 @@ export default function TodayScreen() {
             contentContainerStyle={{ padding: spacing.lg, paddingTop: 0, paddingBottom: spacing.xxxl }}
             refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => { setRefreshing(true); load(); }} />}
           >
+            {/* What this phone did without signal and has not sent yet. */}
+            <OutboxBanner />
             {/* Where you are */}
             <Card style={[styles.presence, presence?.checked_in && { backgroundColor: colors.primaryDark }]}>
               <View style={{ flex: 1 }}>

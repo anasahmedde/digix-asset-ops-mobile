@@ -1,4 +1,5 @@
 import api from "./api";
+import { cached } from "./offline";
 
 /** An installation on the tracker, as the list serializer sends it. */
 export interface InstallationJob {
@@ -42,16 +43,20 @@ export interface MaintenanceJob {
 const OPEN_JOB = new Set(["active", "pending", "in_process", "on_hold", "overdue"]);
 
 export async function myInstallations(me: string): Promise<InstallationJob[]> {
-  const { data } = await api.get("/sites/installations/", { params: { installed_by: me, page_size: 100, ordering: "due_date" } });
-  return (data.results ?? data) as InstallationJob[];
+  return (await cached(`installs-${me}`, async () => {
+    const { data } = await api.get("/sites/installations/", { params: { installed_by: me, page_size: 100, ordering: "due_date" } });
+    return (data.results ?? data) as InstallationJob[];
+  })).data;
 }
 
 export async function myMaintenance(me: string): Promise<MaintenanceJob[]> {
   // The jobs this person is on now: their open visit, or a job in their
   // name with none open. By the job's name alone, a job whose visit had gone
   // to somebody else stayed in this list with nothing to do.
-  const { data } = await api.get("/maintenance/schedules/", { params: { technician: me, page_size: 100, ordering: "next_due" } });
-  return (data.results ?? data) as MaintenanceJob[];
+  return (await cached(`maintenance-${me}`, async () => {
+    const { data } = await api.get("/maintenance/schedules/", { params: { technician: me, page_size: 100, ordering: "next_due" } });
+    return (data.results ?? data) as MaintenanceJob[];
+  })).data;
 }
 
 export const isOpenInstallation = (j: InstallationJob) => !j.completed_at;

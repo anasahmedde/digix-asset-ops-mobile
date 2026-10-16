@@ -73,7 +73,13 @@ api.interceptors.response.use(
         originalRequest.headers = originalRequest.headers ?? {};
         originalRequest.headers.Authorization = `Bearer ${newAccess}`;
         return api(originalRequest);
-      } catch {
+      } catch (refreshError) {
+        // No answer is not a refusal. Signal dropping during the refresh -
+        // a basement, a lift - must not sign the technician out; the session
+        // is tried again when there is signal. Only a refused refresh ends it.
+        const refused = (refreshError as { response?: unknown })?.response
+          || (refreshError as Error)?.message === "No refresh token";
+        if (!refused) return Promise.reject(refreshError);
         await forceLogout("Your session has ended. Sign in again.");
       }
     }

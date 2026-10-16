@@ -5,8 +5,10 @@ import {
 import { useFonts } from "expo-font";
 import { Stack } from "expo-router";
 import { StatusBar } from "expo-status-bar";
+import { useEffect } from "react";
 
 import { colors } from "@/constants/theme";
+import { startOutbox } from "@/lib/offline";
 
 const headerStyle = {
   headerShown: true,
@@ -25,6 +27,8 @@ export default function RootLayout() {
     ...Ionicons.font,
     Urbanist_400Regular, Urbanist_500Medium, Urbanist_600SemiBold, Urbanist_700Bold, Urbanist_800ExtraBold,
   });
+  // Whatever was done without signal goes up as soon as there is some.
+  useEffect(() => { startOutbox(); }, []);
   if (!fontsLoaded && !fontError) return null;
 
   return (
