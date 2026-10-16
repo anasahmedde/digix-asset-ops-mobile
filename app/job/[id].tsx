@@ -136,6 +136,10 @@ export default function JobScreen() {
   const started = current?.status === "in_progress";
   const before = !!current?.has_before_photo;
   const after = !!current?.has_after_photo;
+  // Work done is the write-up and the After photo together: both are
+  // needed to get past it, and the server refuses completion without them.
+  const written = !!current?.notes?.trim();
+  const workDone = after && written;
   const myParts = parts.filter((p) => !current || !p.visit || p.visit === current.id);
   // Issued and not yet accounted for: what goes back once the work is done.
   const issued = myParts.filter((p) => p.quantity_issued && p.quantity_issued > 0 && p.quantity_used == null);
@@ -159,18 +163,19 @@ export default function JobScreen() {
     : !verified ? 3
     : !before ? 4
     : !started ? 5
-    : !after ? 6
+    : !workDone ? 6
     : 7;
 
   // -- actions
   const clockIn = () => run("presence", async () => { if (!job.site) throw new Error("no site"); setPresence(await checkIn(job.site)); }, "This job has no site to check in at");
   const clockOut = () => run("presence", async () => { setPresence(await checkOut(job.site)); toast.success("Checked out"); }, "Could not check out");
-  const photo = (kind: "before" | "after") => run(kind, async () => {
+  const photo = (kind: "before" | "after", withNotes?: string) => run(kind, async () => {
     if (!current) return;
     const a = await takePhoto();
     if (!a) return;
     const fd = new FormData();
     fd.append("kind", kind);
+    if (withNotes !== undefined) fd.append("notes", withNotes);
     fd.append("image", asUpload(a, `${kind}.jpg`));
     try {
       if (await requestForegroundLocationPermission()) {
@@ -392,12 +397,25 @@ export default function JobScreen() {
             <FlowStep n={5} title="Start work" state={started || awaiting ? "done" : stage === 5 ? "now" : "later"}>
               {stage === 5 && canAct ? <Button title="Start work" icon="play" loading={busy === "start"} onPress={start} /> : null}
             </FlowStep>
-            <FlowStep n={6} title="Work done" state={after || awaiting ? "done" : stage === 6 ? "now" : "later"}>
+            <FlowStep n={6} title="Work done" state={workDone || awaiting ? "done" : stage === 6 ? "now" : "later"}>
               {(started || awaiting) ? (
                 <>
-                  <TextInput style={[styles.input, { height: 84, textAlignVertical: "top" }]} multiline editable={canAct && started} placeholder={job.maintenance_type === "corrective" ? "What was done" : "What was checked, cleaned or replaced, and anything observed"} placeholderTextColor={colors.textLight} value={notes} onChangeText={setNotes} />
-                  {canAct && started ? <Button title="Save" small variant="secondary" loading={busy === "notes"} onPress={saveNotes} /> : null}
-                  {canAct && started ? <Button title="Take the After photo" icon="camera" loading={busy === "after"} onPress={() => photo("after")} /> : null}
+                  <TextInput style={[styles.input, { height: 84, textAlignVertical: "top" }]} multiline editable={canAct && started && !workDone} placeholder={job.maintenance_type === "corrective" ? "What was done" : "What was checked, cleaned or replaced, and anything observed"} placeholderTextColor={colors.textLight} value={notes} onChangeText={setNotes} />
+                  {canAct && started && !workDone ? (
+                    <>
+                      <Text style={styles.hint}>Both are needed to complete the visit: what was done, and the After photo.</Text>
+                      <Button
+                        title={after ? "Save work done" : "Save and take the After photo"}
+                        icon={after ? "checkmark" : "camera"}
+                        loading={busy === "after" || busy === "notes"}
+                        onPress={() => {
+                          if (!notes.trim()) { toast.error("Say what was done first"); return; }
+                          if (after) saveNotes(); else photo("after", notes.trim());
+                        }}
+                      />
+                    </>
+                  ) : null}
+                  {workDone ? <Text style={styles.hint}>Saved with the After photo.</Text> : null}
                 </>
               ) : null}
             </FlowStep>
