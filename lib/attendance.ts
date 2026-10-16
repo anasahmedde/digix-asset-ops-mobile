@@ -76,3 +76,30 @@ export async function checkOut(site: string | null, note = ""): Promise<Presence
 export function onSite(p: Presence | null, site: string | null | undefined): boolean {
   return !!p && p.checked_in && !!site && p.site === site;
 }
+
+/** Time in / Time out: whether the person is on duty, and since when. Where
+ *  they were is sent with it and read by their supervisor, not shown here. */
+export interface Duty { on_duty: boolean; since: string | null; pending?: boolean }
+
+export async function getDuty(): Promise<Duty> {
+  let base: Duty;
+  try {
+    ({ data: base } = await cached("duty", async () => (await api.get("/attendance/duty/status/")).data as Duty));
+  } catch {
+    base = { on_duty: false, since: null };
+  }
+  for (const op of await pendingFor("duty")) {
+    base = op.kind === "time_in" ? { on_duty: true, since: op.at, pending: true } : { on_duty: false, since: null, pending: true };
+  }
+  return base;
+}
+
+/** Time in or out - with or without signal; the place travels with it. */
+export async function timeInOut(kind: "time_in" | "time_out"): Promise<Duty & { queued?: boolean }> {
+  const where = await whereami();
+  const r = await submit({
+    kind, scope: "duty", label: kind === "time_in" ? "Time in" : "Time out",
+    method: "post", url: "/attendance/duty/", json: { kind, ...where },
+  });
+  return { ...(await getDuty()), queued: r.queued };
+}
