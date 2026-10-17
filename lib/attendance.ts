@@ -91,6 +91,12 @@ export async function getDuty(): Promise<Duty> {
   for (const op of await pendingFor("duty")) {
     base = op.kind === "time_in" ? { on_duty: true, since: op.at, pending: true } : { on_duty: false, since: null, pending: true };
   }
+  // A check-in at a job times you in if you had not: the server does it
+  // when the check-in arrives, so a waiting one counts already.
+  if (!base.on_duty) {
+    const checkin = (await pendingFor("attendance")).find((o) => o.kind === "checkin");
+    if (checkin) base = { on_duty: true, since: checkin.at, pending: true };
+  }
   return base;
 }
 

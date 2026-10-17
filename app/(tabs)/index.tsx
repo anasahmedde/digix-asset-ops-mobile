@@ -117,7 +117,7 @@ export default function TodayScreen() {
                 <View style={{ flex: 1 }}>
                   <Text style={styles.presLabel}>{duty?.on_duty ? "Timed in" : "Not timed in"}</Text>
                   <Text style={styles.dutyText}>
-                    {duty?.on_duty && duty.since ? `since ${dayLabel(duty.since)}, ${timeOnly(duty.since)}` : "Time in when you start work"}
+                    {duty?.on_duty && duty.since ? `since ${dayLabel(duty.since)}, ${timeOnly(duty.since)}` : "Time in when you start your working hours"}
                   </Text>
                 </View>
                 <Button title={duty?.on_duty ? "Time out" : "Time in"} small variant={duty?.on_duty ? "secondary" : "primary"}
