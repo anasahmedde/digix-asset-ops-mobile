@@ -45,6 +45,7 @@ type Upload = ReturnType<typeof asUpload>;
 interface Visit {
   id: string; sequence: number; status: string; status_display: string; assigned_to: string | null; due_date: string | null;
   assigned_to_name?: string | null;
+  helpers?: string[]; helper_names?: string[];
   started_at: string | null; completed_at: string | null; remarks: string; notes?: string; resolved: boolean | null;
   asset_verified_at: string | null;
   review_decision: string | null; review_decision_display?: string; review_reason?: string; review_note: string | null;
@@ -275,6 +276,8 @@ export default function JobScreen() {
   const current = [...visits].reverse().find((v) => v.status !== "completed" && v.status !== "skipped") ?? null;
   const past = visits.filter((v) => v !== current);
   const mine = !!me && (me.id === (current?.assigned_to ?? job.assigned_to));
+  // A helper: on the visit to check in and out; the technician works it.
+  const helping = !!me && !mine && !!current?.helpers?.includes(me.id);
   const here = onSite(presence, job.site);
   const closed = ["completed", "cancelled"].includes(job.status) || !current;
   // The phone has read the label on the asset this job is for. A job with
@@ -561,6 +564,7 @@ export default function JobScreen() {
             <Row label="Asset" value={job.device_code ? `${job.device_code} · ${job.device_name ?? ""}` : "—"} />
             <Row label="Site" value={job.site_name ?? "—"} />
             <Row label="Technician" value={job.current_technician_name ?? job.assigned_to_name ?? "Not assigned"} />
+            {(current?.helper_names ?? []).length ? <Row label="Helpers" value={current!.helper_names!.join(", ")} /> : null}
             {current ? <Row label="Visit" value={`#${current.sequence}`} /> : null}
             {current?.due_date ? <Row label="Due on" value={current.due_date} /> : null}
             {job.ticket_description ? <Text style={[styles.hint, { marginTop: 8 }]}>{job.ticket_description}</Text> : null}
@@ -568,9 +572,9 @@ export default function JobScreen() {
           {job.ticket ? <Pressable onPress={() => router.push(`/ticket/${job.ticket}`)} style={styles.linkRow}><Ionicons name="reader-outline" size={15} color={colors.primary} /><Text style={styles.link}>Open ticket {job.ticket_number}</Text></Pressable> : null}
 
           <PresenceCard
-            presence={presence} site={job.site} siteName={job.site_name ?? "the site"} mine={mine} busy={busy === "presence"}
-            onCheckIn={clockIn} onCheckOut={askOnCheckout}
-            lockedReason={!componentsDone && !here ? "Components for this visit come first (step 1). Check-in opens once they are issued, or none are needed." : undefined}
+            presence={presence} site={job.site} siteName={job.site_name ?? "the site"} mine={mine || helping} busy={busy === "presence"}
+            onCheckIn={clockIn} onCheckOut={helping ? clockOut : askOnCheckout}
+            lockedReason={mine && !componentsDone && !here ? "Components for this visit come first (step 1). Check-in opens once they are issued, or none are needed." : undefined}
           />
           <ScanSheet open={scan} expect={job.device_code ?? ""} onScan={verify} onClose={() => setScan(false)} />
 
@@ -581,6 +585,9 @@ export default function JobScreen() {
             </Note>
           ) : null}
 
+          {helping ? (
+            <Note>You are helping {job.current_technician_name || "the technician"} on this visit. Check in when you reach {job.site_name ?? "the site"} and check out when you leave; {job.current_technician_name || "the technician"} records the work.</Note>
+          ) : (<>
           <Section title="The visit, step by step">
             <FlowStep n={1} title="Components for this visit" state={componentsDone ? "done" : "now"}>
               <Text style={styles.hint}>The technician asks, a supervisor releases, the store issues.</Text>
@@ -745,6 +752,7 @@ export default function JobScreen() {
               {[...past].reverse().map((v) => <VisitLog key={v.id} v={v} parts={parts} corrective={corrective} />)}
             </Section>
           ) : null}
+          </>)}
         </ScrollView>
 
         {/* Components for this visit: the web's form, in a sheet */}

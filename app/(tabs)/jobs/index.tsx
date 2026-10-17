@@ -85,7 +85,7 @@ function InstallCard({ j }: { j: InstallationJob }) {
       </View>
       <View style={styles.meta}>
         <Ionicons name="location-outline" size={13} color={colors.textLight} />
-        <Text style={styles.metaText} numberOfLines={1}>{j.site_name}{j.position_label ? ` · ${j.position_label}` : ""}</Text>
+        <Text style={styles.metaText} numberOfLines={1}>{j.helping ? "Helping · " : ""}{j.site_name}{j.position_label ? ` · ${j.position_label}` : ""}</Text>
         {j.due_date ? <Text style={[styles.metaText, late && { color: colors.danger, fontWeight: "700" }]}>· due {j.due_date}</Text> : null}
       </View>
     </Card>
@@ -108,7 +108,7 @@ function JobCard({ j }: { j: MaintenanceJob }) {
       </View>
       <View style={styles.meta}>
         <Ionicons name="location-outline" size={13} color={colors.textLight} />
-        <Text style={styles.metaText} numberOfLines={1}>{j.site_name ?? "No site"}{j.device_code ? ` · ${j.device_code}` : ""}</Text>
+        <Text style={styles.metaText} numberOfLines={1}>{j.helping ? "Helping · " : ""}{j.site_name ?? "No site"}{j.device_code ? ` · ${j.device_code}` : ""}</Text>
         {j.next_due ? <Text style={styles.metaText}>· due {j.next_due}</Text> : null}
       </View>
     </Card>

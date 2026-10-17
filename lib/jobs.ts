@@ -13,6 +13,9 @@ export interface InstallationJob {
   due_date: string | null;
   completed_at: string | null;
   installed_by: string | null;
+  /** More hands on the job; set on this phone when the person is one of them. */
+  helpers?: string[];
+  helping?: boolean;
   progress: number;
   steps_done?: number;
   steps_total?: number;
@@ -38,14 +41,20 @@ export interface MaintenanceJob {
   ticket_number: string | null;
   next_due?: string | null;
   frequency?: string;
+  /** Who is helping on the open visit; `helping` is set when it is this person. */
+  current_helpers?: string[];
+  helping?: boolean;
 }
 
 const OPEN_JOB = new Set(["active", "pending", "in_process", "on_hold", "overdue"]);
 
 export async function myInstallations(me: string): Promise<InstallationJob[]> {
   return (await cached(`installs-${me}`, async () => {
-    const { data } = await api.get("/sites/installations/", { params: { installed_by: me, page_size: 100, ordering: "due_date" } });
-    return (data.results ?? data) as InstallationJob[];
+    // As the installer or as a helper.
+    const { data } = await api.get("/sites/installations/", { params: { crew: me, page_size: 100, ordering: "due_date" } });
+    return ((data.results ?? data) as InstallationJob[]).map((j) => ({
+      ...j, helping: j.installed_by !== me && (j.helpers ?? []).includes(me),
+    }));
   })).data;
 }
 
@@ -55,7 +64,9 @@ export async function myMaintenance(me: string): Promise<MaintenanceJob[]> {
   // to somebody else stayed in this list with nothing to do.
   return (await cached(`maintenance-${me}`, async () => {
     const { data } = await api.get("/maintenance/schedules/", { params: { technician: me, page_size: 100, ordering: "next_due" } });
-    return (data.results ?? data) as MaintenanceJob[];
+    return ((data.results ?? data) as MaintenanceJob[]).map((j) => ({
+      ...j, helping: (j.current_helpers ?? []).includes(me),
+    }));
   })).data;
 }
 

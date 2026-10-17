@@ -41,6 +41,7 @@ interface Installation {
   site: string; site_name: string; position_label: string; progress: number;
   due_date: string | null; completed_at: string | null; installed_by: string | null; installed_by_name?: string | null;
   client_names?: string[]; handover: Handover | null; steps: Step[]; photos: Photo[];
+  helpers?: string[]; helper_names?: string[];
   asset_verified_at: string | null; delays?: Delay[];
 }
 
@@ -154,6 +155,8 @@ export default function InstallationScreen() {
   }
 
   const mine = !!me && me.id === inst.installed_by;
+  // A helper: on the job to check in and out; the installer works the steps.
+  const helping = !!me && !mine && (inst.helpers ?? []).includes(me.id);
   const here = onSite(presence, inst.site);
   // The phone has read the label on this asset: the checklist is being
   // worked on the right one.
@@ -283,13 +286,17 @@ export default function InstallationScreen() {
             <Row label="Site" value={inst.site_name + (inst.position_label ? ` · ${inst.position_label}` : "")} />
             <Row label="Client" value={inst.client_names?.join(", ") || "—"} />
             <Row label="Installer" value={inst.installed_by_name || "Not assigned"} />
+            {(inst.helper_names ?? []).length ? <Row label="Helpers" value={inst.helper_names!.join(", ")} /> : null}
             <Row label="Due Date" value={inst.due_date || "—"} />
           </Card>
 
-          <PresenceCard presence={presence} site={inst.site} siteName={inst.site_name} mine={mine} busy={busy === "presence"} onCheckIn={clockIn} onCheckOut={clockOut} />
+          <PresenceCard presence={presence} site={inst.site} siteName={inst.site_name} mine={mine || helping} busy={busy === "presence"} onCheckIn={clockIn} onCheckOut={clockOut} />
           <ScanSheet open={scan} expect={inst.device_code} onScan={verify} onClose={() => setScan(false)} />
 
           {/* 1 Check in */}
+          {helping ? (
+            <Note>You are helping {inst.installed_by_name || "the installer"} on this installation. Check in when you reach {inst.site_name} and check out when you leave; {inst.installed_by_name || "the installer"} records the steps.</Note>
+          ) : (<>
           <Section title="The job, step by step">
             <FlowStep n={1} title="Check in at the site" state={here || inst.completed_at ? "done" : "now"} />
 
@@ -395,6 +402,7 @@ export default function InstallationScreen() {
               </View>
           </Section>
           ) : null}
+          </>)}
         </ScrollView>
 
         {/* Add step */}

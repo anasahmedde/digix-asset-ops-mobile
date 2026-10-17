@@ -160,7 +160,7 @@ export default function TodayScreen() {
                 <View style={styles.jobIcon}><Ionicons name="layers-outline" size={18} color={colors.primary} /></View>
                 <View style={{ flex: 1 }}>
                   <Text style={styles.jobTitle} numberOfLines={1}>{j.device_code} · {j.device_name}</Text>
-                  <Text style={styles.jobSub} numberOfLines={1}>Install at {j.site_name}{j.due_date ? ` · due ${j.due_date}` : ""}</Text>
+                  <Text style={styles.jobSub} numberOfLines={1}>{j.helping ? "Helping · " : ""}Install at {j.site_name}{j.due_date ? ` · due ${j.due_date}` : ""}</Text>
                 </View>
                 <Pill label={`${j.progress ?? 0}%`} fg={colors.primary} bg={colors.primarySoft} />
               </Card>
@@ -170,7 +170,7 @@ export default function TodayScreen() {
                 <View style={[styles.jobIcon, { backgroundColor: colors.warningSoft }]}><Ionicons name="construct-outline" size={18} color="#b45309" /></View>
                 <View style={{ flex: 1 }}>
                   <Text style={styles.jobTitle} numberOfLines={1}>{j.device_code ? `${j.device_code} · ` : ""}{j.title}</Text>
-                  <Text style={styles.jobSub} numberOfLines={1}>{j.maintenance_type === "corrective" ? "Corrective" : "Preventive"} · {j.site_name ?? "No site"}{j.next_due ? ` · due ${j.next_due}` : ""}</Text>
+                  <Text style={styles.jobSub} numberOfLines={1}>{j.helping ? "Helping · " : ""}{j.maintenance_type === "corrective" ? "Corrective" : "Preventive"} · {j.site_name ?? "No site"}{j.next_due ? ` · due ${j.next_due}` : ""}</Text>
                 </View>
                 <Pill label={j.status_display} fg={j.status === "in_process" ? "#b45309" : colors.textMuted} bg={j.status === "in_process" ? colors.warningSoft : colors.secondary} />
               </Card>
