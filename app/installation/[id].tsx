@@ -8,7 +8,7 @@ import { FlowStep, Note, PresenceCard, Section, Wash } from "@/components/field"
 import { OutboxBanner } from "@/components/outbox-banner";
 import { ScanSheet } from "@/components/scan-sheet";
 import { Text } from "@/components/text";
-import { Button, Card, Pill, Row } from "@/components/ui";
+import { Button, Card, FieldLabel, Pill, Row, Select } from "@/components/ui";
 import { colors, font, radius, spacing } from "@/constants/theme";
 import api from "@/lib/api";
 import { Presence, checkIn, checkOut, getPresence, onSite } from "@/lib/attendance";
@@ -30,14 +30,25 @@ interface Step {
   started_at: string | null; completed_at: string | null;
 }
 interface Photo { id: string; photo_type: string; image: string; caption: string }
+/** A delay or hold flagged on the job, as the web lists it under its step. */
+interface Delay {
+  id: string; step: string | null; cause: string; cause_display: string; description: string;
+  reported_by_name?: string | null; created_at: string; resolved_at: string | null;
+}
 interface Handover { id: string; handover_date: string; accepted_by_name: string; acceptance_notes: string; client_name: string; signed_document?: string | null }
 interface Installation {
   id: string; device: string; device_code: string; device_name: string; device_status?: string;
   site: string; site_name: string; position_label: string; progress: number;
   due_date: string | null; completed_at: string | null; installed_by: string | null; installed_by_name?: string | null;
   client_names?: string[]; handover: Handover | null; steps: Step[]; photos: Photo[];
-  asset_verified_at: string | null;
+  asset_verified_at: string | null; delays?: Delay[];
 }
+
+/** The web's "Caused by" list. */
+const DELAY_CAUSES = [
+  { id: "client", label: "Client" }, { id: "internal", label: "Internal" },
+  { id: "vendor", label: "Vendor" }, { id: "other", label: "Other" },
+];
 
 const STEP_TYPES = [
   ["survey", "Survey"], ["wiring", "Wiring"], ["structure", "Metal Structure"], ["programming", "Programming"],
@@ -92,6 +103,8 @@ export default function InstallationScreen() {
   const [scan, setScan] = useState(false);
   const [stale, setStale] = useState(false);
   const [stepForm, setStepForm] = useState<{ type: string; label: string } | null>(null);
+  // The web's Flag Delay form; Hold uses it too and then puts the step on hold.
+  const [delayFor, setDelayFor] = useState<{ step: Step; label: string; hold: boolean; cause: string; note: string } | null>(null);
   const [handoverForm, setHandoverForm] = useState<{ name: string; notes: string; doc: ReturnType<typeof asUpload> | null; docName: string } | null>(null);
 
   const load = useCallback(async () => {
@@ -162,6 +175,28 @@ export default function InstallationScreen() {
     });
     if (r.queued) toast.success(QUEUED_NOTE);
   }, "Failed to update step");
+  const submitDelay = () => {
+    if (!delayFor) return;
+    const f = delayFor;
+    setDelayFor(null);
+    run(f.step.id, async () => {
+      const r = await submit({
+        kind: "delay", scope: `inst:${id}`, label: `${f.hold ? "Hold" : "Flag Delay"}: ${f.label}`,
+        method: "post", url: "/sites/installation-delays/",
+        json: { installation: inst.id, step: f.step.id, cause: f.cause, description: f.note.trim() },
+      });
+      let queued = r.queued;
+      if (f.hold) {
+        const h = await submit({
+          kind: "step", scope: `inst:${id}`, label: `${f.label}: On Hold`,
+          method: "patch", url: `/sites/installation-steps/${f.step.id}/`, json: { status: "on_hold" },
+          meta: { step: f.step.id, status: "on_hold", status_display: STATUS_WORDS.on_hold },
+        });
+        queued = queued || h.queued;
+      }
+      said(queued, f.hold ? "Step put on hold" : "Delay logged");
+    }, "Failed to log delay");
+  };
   const removeStep = (s: Step) => Alert.alert("Remove this step from the checklist?", s.custom_label || s.step_type_display, [
     { text: "Keep", style: "cancel" },
     { text: "Remove", style: "destructive", onPress: () => run(s.id, async () => { await api.delete(`/sites/installation-steps/${s.id}/`); }, "Could not remove the step") },
@@ -280,13 +315,29 @@ export default function InstallationScreen() {
                       <Text style={styles.stepName}>{idx + 1}. {s.custom_label || s.step_type_display}</Text>
                       <Pill label={busy === s.id ? "…" : s.status_display} fg={tone.fg} bg={tone.bg} />
                     </View>
+                    {(inst.delays ?? []).filter((d) => d.step === s.id).map((d) => (
+                      <View key={d.id} style={styles.delay}>
+                        <Text style={styles.delayHead}>
+                          {s.status === "on_hold" && !d.resolved_at ? "On hold" : "Delay"} — caused by {d.cause_display}
+                        </Text>
+                        {d.description ? <Text style={styles.hint}>{d.description}</Text> : null}
+                        <Text style={styles.delayMeta}>
+                          {d.reported_by_name ? `By ${d.reported_by_name} · ` : ""}{d.created_at.slice(0, 10)}{d.resolved_at ? ` · resolved ${d.resolved_at.slice(0, 10)}` : ""}
+                        </Text>
+                      </View>
+                    ))}
                     {canAct ? (
+                      // The web's buttons, in the web's order and under the same rules.
                       <View style={styles.stepBtns}>
-                        {s.status === "not_started" && <Button title="Start" small icon="play" onPress={() => setStep(s, "in_progress")} />}
-                        {s.status === "in_progress" && <Button title="Complete" small variant="success" icon="checkmark" onPress={() => setStep(s, "completed")} />}
-                        {s.status === "in_progress" && <Button title="Hold" small variant="secondary" icon="pause" onPress={() => setStep(s, "on_hold")} />}
-                        {s.status === "on_hold" && <Button title="Resume" small icon="play" onPress={() => setStep(s, "in_progress")} />}
-                        {s.status === "not_started" && <Button title="Skip" small variant="ghost" onPress={() => setStep(s, "skipped")} />}
+                        {s.status !== "in_progress" && s.status !== "completed" && <Button title="Start" small icon="play" onPress={() => setStep(s, "in_progress")} />}
+                        {s.status !== "completed" && <Button title="Complete" small variant="success" icon="checkmark" disabled={s.status !== "in_progress"} onPress={() => setStep(s, "completed")} />}
+                        {s.status !== "on_hold" && s.status !== "completed" && (
+                          <Button title="Hold" small variant="secondary" icon="pause"
+                            onPress={() => setDelayFor({ step: s, label: `${idx + 1}. ${s.custom_label || s.step_type_display}`, hold: true, cause: "client", note: "" })} />
+                        )}
+                        {s.status !== "not_started" && <Button title="Reset" small variant="ghost" icon="refresh" onPress={() => setStep(s, "not_started")} />}
+                        <Button title="Flag Delay" small variant="ghost" icon="warning-outline"
+                          onPress={() => setDelayFor({ step: s, label: `${idx + 1}. ${s.custom_label || s.step_type_display}`, hold: false, cause: "client", note: "" })} />
                         {s.status === "not_started" && <Pressable onPress={() => removeStep(s)} hitSlop={8}><Ionicons name="trash-outline" size={18} color={colors.textLight} /></Pressable>}
                       </View>
                     ) : null}
@@ -373,6 +424,31 @@ export default function InstallationScreen() {
           </View>
         </Modal>
 
+        {/* Flag Delay / Hold: the web's form */}
+        <Modal visible={!!delayFor} transparent animationType="slide" onRequestClose={() => setDelayFor(null)}>
+          <View style={styles.modalWrap}>
+            <View style={styles.modalCard}>
+              <Text style={styles.modalTitle}>Flag Delay — {delayFor?.label}</Text>
+              {delayFor?.hold ? <Text style={styles.hint}>The step goes on hold until it is started again.</Text> : null}
+              <View>
+                <FieldLabel>Caused by</FieldLabel>
+                <Select value={delayFor?.cause ?? "client"} options={DELAY_CAUSES}
+                  onChange={(c) => setDelayFor((f) => f && { ...f, cause: c })} />
+              </View>
+              <View>
+                <FieldLabel>Details</FieldLabel>
+                <TextInput style={[styles.input, { height: 76, textAlignVertical: "top" }]} multiline
+                  placeholder="e.g. Client did not grant site access" placeholderTextColor={colors.textLight}
+                  value={delayFor?.note ?? ""} onChangeText={(t) => setDelayFor((f) => f && { ...f, note: t })} />
+              </View>
+              <View style={styles.modalActions}>
+                <Button title="Cancel" small variant="secondary" onPress={() => setDelayFor(null)} />
+                <Button title="Log Delay" small variant="danger" onPress={submitDelay} />
+              </View>
+            </View>
+          </View>
+        </Modal>
+
         {/* Handover */}
         <Modal visible={!!handoverForm} transparent animationType="slide" onRequestClose={() => setHandoverForm(null)}>
           <View style={styles.modalWrap}>
@@ -409,6 +485,9 @@ const styles = StyleSheet.create({
   stepTop: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 8 },
   stepName: { flex: 1, fontSize: font.sm, fontWeight: "700", color: colors.text },
   stepBtns: { flexDirection: "row", alignItems: "center", gap: 8, flexWrap: "wrap" },
+  delay: { gap: 2, padding: 8, borderRadius: radius.sm, backgroundColor: colors.dangerSoft },
+  delayHead: { fontSize: font.xs, fontWeight: "700", color: colors.danger },
+  delayMeta: { fontSize: font.xs, color: colors.textMuted },
   photoGrid: { flexDirection: "row", flexWrap: "wrap", gap: spacing.sm },
   photo: { width: 100, height: 100, borderRadius: radius.md, backgroundColor: colors.border },
   photoTag: { fontSize: font.xs, color: colors.textMuted, textAlign: "center", marginTop: 2, textTransform: "capitalize" },
