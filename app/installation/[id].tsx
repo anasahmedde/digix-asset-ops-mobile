@@ -161,12 +161,15 @@ export default function InstallationScreen() {
   // The phone has read the label on this asset: the checklist is being
   // worked on the right one.
   const verified = !!inst.asset_verified_at;
-  const canAct = mine && here && verified && !inst.completed_at;
+  // Finished: every step done, or handed over to the client (a job whose
+  // steps were all skipped was never stamped complete before the handover).
+  const finished = !!inst.completed_at || !!inst.handover;
+  const canAct = mine && here && verified && !finished;
   const workSteps = inst.steps.filter((s) => s.step_type !== "handover");
   const allDone = workSteps.length > 0 && workSteps.every((s) => s.status === "completed" || s.status === "skipped");
   const active = inst.device_status === "active" || inst.photos.some((p) => p.photo_type === "post_install") && allDone && !!inst.handover;
   const isLive = inst.device_status ? inst.device_status === "active" || inst.device_status === "client_property" : active;
-  const stage: 1 | 2 | 3 | 4 | 5 | 6 = !here && !inst.completed_at ? 1 : !verified && !inst.completed_at ? 2 : !allDone ? 3 : !isLive ? 4 : !inst.handover ? 5 : 6;
+  const stage: 1 | 2 | 3 | 4 | 5 | 6 = !here && !finished ? 1 : !verified && !finished ? 2 : !allDone ? 3 : !isLive ? 4 : !inst.handover ? 5 : 6;
 
   // -- the actions
   const said = (queued: boolean, done: string) => toast.success(queued ? `${done}. ${QUEUED_NOTE}` : done);
@@ -280,7 +283,7 @@ export default function InstallationScreen() {
               <Text style={styles.code}>{inst.device_code}</Text>
               <Text style={styles.sub}>{inst.device_name}</Text>
             </View>
-            {inst.completed_at ? <Pill label="Completed" fg="#047857" bg={colors.successSoft} /> : <Pill label={`${inst.progress}%`} fg={colors.primary} bg={colors.primarySoft} />}
+            {finished ? <Pill label="Completed" fg="#047857" bg={colors.successSoft} /> : <Pill label={`${inst.progress}%`} fg={colors.primary} bg={colors.primarySoft} />}
           </View>
           <Card style={{ marginTop: spacing.md, gap: 0 }}>
             <Row label="Site" value={inst.site_name + (inst.position_label ? ` · ${inst.position_label}` : "")} />
@@ -290,7 +293,10 @@ export default function InstallationScreen() {
             <Row label="Due Date" value={inst.due_date || "—"} />
           </Card>
 
-          <PresenceCard presence={presence} site={inst.site} siteName={inst.site_name} mine={mine || helping} busy={busy === "presence"} onCheckIn={clockIn} onCheckOut={clockOut} />
+          {/* A finished job asks nobody to check in; whoever is still on site can check out. */}
+          {!finished || here ? (
+            <PresenceCard presence={presence} site={inst.site} siteName={inst.site_name} mine={mine || helping} busy={busy === "presence"} onCheckIn={clockIn} onCheckOut={clockOut} />
+          ) : null}
           <ScanSheet open={scan} expect={inst.device_code} onScan={verify} onClose={() => setScan(false)} />
 
           {/* 1 Check in */}
@@ -298,10 +304,10 @@ export default function InstallationScreen() {
             <Note>You are helping {inst.installed_by_name || "the installer"} on this installation. Check in when you reach {inst.site_name} and check out when you leave; {inst.installed_by_name || "the installer"} records the steps.</Note>
           ) : (<>
           <Section title="The job, step by step">
-            <FlowStep n={1} title="Check in at the site" state={here || inst.completed_at ? "done" : "now"} />
+            <FlowStep n={1} title="Check in at the site" state={here || finished ? "done" : "now"} />
 
             {/* 2 Scan the asset */}
-            <FlowStep n={2} title="Scan the asset's label" state={verified || inst.completed_at ? "done" : stage === 2 ? "now" : "later"}>
+            <FlowStep n={2} title="Scan the asset's label" state={verified || finished ? "done" : stage === 2 ? "now" : "later"}>
               {stage === 2 && mine && here ? (
                 <>
                   <Text style={styles.hint}>Point the camera at the QR label on {inst.device_code}. The steps open once it matches.</Text>
@@ -352,8 +358,8 @@ export default function InstallationScreen() {
                 );
               })}
               {canAct && !allDone ? <Button title="Add Step" small variant="secondary" icon="add" onPress={() => setStepForm({ type: "other", label: "" })} /> : null}
-              {!canAct && mine && !here && !inst.completed_at ? <Note tone="warn">Check in at {inst.site_name} to work the steps.</Note> : null}
-              {!canAct && mine && here && !verified && !inst.completed_at ? <Note tone="warn">Scan the label on {inst.device_code} to open the steps.</Note> : null}
+              {!canAct && mine && !here && !finished ? <Note tone="warn">Check in at {inst.site_name} to work the steps.</Note> : null}
+              {!canAct && mine && here && !verified && !finished ? <Note tone="warn">Scan the label on {inst.device_code} to open the steps.</Note> : null}
             </FlowStep>
 
             {/* 4 Mark active */}
