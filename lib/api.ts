@@ -9,7 +9,9 @@ export const API_ORIGIN = API_URL.replace(/\/api\/?$/, "");
 
 const api = axios.create({
   baseURL: API_URL,
-  headers: { "Content-Type": "application/json" },
+  // Says this is the field app: signing in and working here needs
+  // "Use the field app" on the account.
+  headers: { "Content-Type": "application/json", "X-Client": "field-app" },
 });
 
 api.interceptors.request.use(async (config) => {
@@ -82,6 +84,13 @@ api.interceptors.response.use(
         if (!refused) return Promise.reject(refreshError);
         await forceLogout("Your session has ended. Sign in again.");
       }
+    }
+
+    // "Use the field app" was taken away: the phone is signed out, and the
+    // login screen says why.
+    const detail = String(error.response?.data?.detail ?? "");
+    if (error.response?.status === 403 && detail.includes("field app")) {
+      await forceLogout(detail);
     }
 
     return Promise.reject(error);
