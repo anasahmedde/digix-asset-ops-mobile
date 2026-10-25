@@ -24,10 +24,16 @@ import { getCurrentUser } from "@/lib/user";
  * handover, check out. Every button is the assigned installer's, and only
  * while they are clocked in at this site.
  */
+interface Check { id: string; text: string; done: boolean; done_by_name?: string | null }
+interface Evidence { id: string; image: string }
 interface Step {
   id: string; step_type: string; step_type_display: string; custom_label: string | null;
   step_number: number; status: string; status_display: string;
   started_at: string | null; completed_at: string | null;
+  /** Ticked while the step is under way; all of it, before it completes. */
+  checks?: Check[];
+  /** Photos of the finished work - at least one, before it completes. */
+  evidence?: Evidence[];
 }
 interface Photo { id: string; photo_type: string; image: string; caption: string }
 /** A delay or hold flagged on the job, as the web lists it under its step. */
@@ -65,7 +71,10 @@ const STEP_TONE: Record<string, { fg: string; bg: string }> = {
 
 /** What this phone did on the installation without signal, shown as done. */
 function overlay(inst: Installation, waiting: Op[]): Installation {
-  const out: Installation = { ...inst, steps: inst.steps.map((x) => ({ ...x })), photos: [...inst.photos] };
+  const out: Installation = {
+    ...inst, photos: [...inst.photos],
+    steps: inst.steps.map((x) => ({ ...x, checks: (x.checks ?? []).map((c) => ({ ...c })), evidence: [...(x.evidence ?? [])] })),
+  };
   for (const op of waiting) {
     const file = (field: string) => op.form?.files.find((f) => f.field === field)?.uri ?? "";
     if (op.kind === "verify") out.asset_verified_at = op.at;
@@ -76,6 +85,11 @@ function overlay(inst: Installation, waiting: Op[]): Installation {
       st.status_display = String(op.meta?.status_display ?? st.status);
       if (st.status === "in_progress" && !st.started_at) st.started_at = op.at;
       if (st.status === "completed") st.completed_at = op.at;
+    } else if (op.kind === "check") {
+      const c = out.steps.find((x) => x.id === op.meta?.step)?.checks?.find((x) => x.id === op.meta?.check);
+      if (c) c.done = !!op.meta?.done;
+    } else if (op.kind === "evidence") {
+      out.steps.find((x) => x.id === op.meta?.step)?.evidence?.push({ id: op.id, image: file("image") });
     } else if (op.kind === "activate") {
       out.device_status = "active";
       out.photos.push({ id: op.id, photo_type: "post_install", image: file("photos"), caption: "" });
@@ -104,6 +118,8 @@ export default function InstallationScreen() {
   const [scan, setScan] = useState(false);
   const [stale, setStale] = useState(false);
   const [stepForm, setStepForm] = useState<{ type: string; label: string } | null>(null);
+  // The item being typed onto a step's checklist.
+  const [checkDraft, setCheckDraft] = useState<{ step: string; text: string } | null>(null);
   // The web's Flag Delay form; Hold uses it too and then puts the step on hold.
   const [delayFor, setDelayFor] = useState<{ step: Step; label: string; hold: boolean; cause: string; note: string } | null>(null);
   const [handoverForm, setHandoverForm] = useState<{ name: string; notes: string; doc: ReturnType<typeof asUpload> | null; docName: string } | null>(null);
@@ -181,6 +197,31 @@ export default function InstallationScreen() {
     });
     if (r.queued) toast.success(QUEUED_NOTE);
   }, "Failed to update step");
+  // A tick and a photo of the work are kept on the phone without signal, like a step.
+  const tick = (s: Step, c: Check) => run(s.id, async () => {
+    await submit({
+      kind: "check", scope: `inst:${id}`, label: `${s.custom_label || s.step_type_display}: ${c.done ? "untick" : "tick"} ${c.text}`,
+      method: "patch", url: `/sites/installation-steps/${s.id}/checks/${c.id}/`, json: { done: !c.done },
+      meta: { step: s.id, check: c.id, done: !c.done },
+    });
+  }, "Could not tick the item");
+  const addCheck = () => {
+    if (!checkDraft?.text.trim()) return;
+    const d = checkDraft;
+    setCheckDraft(null);
+    run(d.step, async () => { await api.post(`/sites/installation-steps/${d.step}/checks/`, { text: d.text.trim() }); }, "Could not add the item");
+  };
+  const evidence = (s: Step) => run(s.id, async () => {
+    const a = await takePhoto();
+    if (!a) return;
+    const r = await submit({
+      kind: "evidence", scope: `inst:${id}`, label: `${s.custom_label || s.step_type_display}: evidence photo`,
+      method: "post", url: "/sites/installation-photos/",
+      form: { fields: { installation: inst.id, step: s.id, photo_type: "evidence" }, files: [asFile(a, "image", "evidence.jpg")] },
+      meta: { step: s.id },
+    });
+    said(r.queued, "Evidence photo added");
+  }, "Could not upload the photo");
   const submitDelay = () => {
     if (!delayFor) return;
     const f = delayFor;
@@ -339,11 +380,60 @@ export default function InstallationScreen() {
                         </Text>
                       </View>
                     ))}
-                    {canAct ? (
-                      // The web's buttons, in the web's order and under the same rules.
+                    {(s.checks ?? []).length > 0 || (canAct && s.status !== "completed") ? (
+                      <View style={{ gap: 4 }}>
+                        <Text style={styles.label}>Checklist{(s.checks ?? []).length ? ` · ${(s.checks ?? []).filter((c) => c.done).length}/${(s.checks ?? []).length}` : ""}</Text>
+                        {(s.checks ?? []).map((c) => (
+                          <Pressable key={c.id} disabled={!canAct || s.status !== "in_progress"} onPress={() => tick(s, c)} style={styles.check} hitSlop={4}>
+                            <Ionicons name={c.done ? "checkbox" : "square-outline"} size={20} color={c.done ? colors.success : canAct && s.status === "in_progress" ? colors.primary : colors.textLight} />
+                            <Text style={[styles.checkText, c.done && styles.checkDone]}>{c.text}</Text>
+                          </Pressable>
+                        ))}
+                        {canAct && s.status !== "completed" ? (
+                          checkDraft?.step === s.id ? (
+                            <View style={{ flexDirection: "row", gap: 6, alignItems: "center" }}>
+                              <TextInput style={[styles.input, { flex: 1, paddingVertical: 6 }]} autoFocus placeholder="What has to be checked" placeholderTextColor={colors.textLight}
+                                value={checkDraft.text} onChangeText={(t) => setCheckDraft({ step: s.id, text: t })} onSubmitEditing={addCheck} />
+                              <Button title="Add" small onPress={addCheck} />
+                            </View>
+                          ) : (
+                            <Pressable onPress={() => setCheckDraft({ step: s.id, text: "" })} hitSlop={6}><Text style={styles.link}>+ Add a check</Text></Pressable>
+                          )
+                        ) : null}
+                      </View>
+                    ) : null}
+                    {(s.evidence ?? []).length > 0 || (canAct && s.status === "in_progress") ? (
+                      <View style={{ gap: 4 }}>
+                        <Text style={styles.label}>Evidence</Text>
+                        <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 6 }}>
+                          {(s.evidence ?? []).map((p) => <Image key={p.id} source={{ uri: p.image.startsWith("file:") ? p.image : mediaUrl(p.image) }} style={styles.evidence} />)}
+                          {canAct && s.status === "in_progress" ? (
+                            <Pressable onPress={() => evidence(s)} style={styles.evidenceAdd}>
+                              <Ionicons name="camera-outline" size={20} color={colors.primary} />
+                              <Text style={styles.evidenceAddText}>Add</Text>
+                            </Pressable>
+                          ) : null}
+                        </View>
+                      </View>
+                    ) : null}
+                    {canAct ? (() => {
+                      // The step before is done before this one starts; this one is done with
+                      // its checklist ticked and a photo of the work.
+                      const ready = workSteps.slice(0, idx).every((p) => p.status === "completed" || p.status === "skipped");
+                      const openChecks = (s.checks ?? []).filter((c) => !c.done).length;
+                      const noPhoto = (s.evidence ?? []).length === 0;
+                      return (
+                      <View style={{ gap: 6 }}>
+                      {s.status === "in_progress" && (openChecks > 0 || noPhoto) ? (
+                        <Text style={styles.hint}>
+                          To complete: {[openChecks > 0 ? `tick ${openChecks} more on the checklist` : "", noPhoto ? "add a photo of the work" : ""].filter(Boolean).join(" and ")}.
+                        </Text>
+                      ) : null}
                       <View style={styles.stepBtns}>
-                        {s.status !== "in_progress" && s.status !== "completed" && <Button title="Start" small icon="play" onPress={() => setStep(s, "in_progress")} />}
-                        {s.status !== "completed" && <Button title="Complete" small variant="success" icon="checkmark" disabled={s.status !== "in_progress"} onPress={() => setStep(s, "completed")} />}
+                        {s.status !== "in_progress" && s.status !== "completed" && (ready
+                          ? <Button title="Start" small icon="play" onPress={() => setStep(s, "in_progress")} />
+                          : <Text style={styles.hint}>Starts after step {idx}</Text>)}
+                        {s.status !== "completed" && <Button title="Complete" small variant="success" icon="checkmark" disabled={s.status !== "in_progress" || openChecks > 0 || noPhoto} onPress={() => setStep(s, "completed")} />}
                         {s.status !== "on_hold" && s.status !== "completed" && (
                           <Button title="Hold" small variant="secondary" icon="pause"
                             onPress={() => setDelayFor({ step: s, label: `${idx + 1}. ${s.custom_label || s.step_type_display}`, hold: true, cause: "client", note: "" })} />
@@ -353,7 +443,9 @@ export default function InstallationScreen() {
                           onPress={() => setDelayFor({ step: s, label: `${idx + 1}. ${s.custom_label || s.step_type_display}`, hold: false, cause: "client", note: "" })} />
                         {s.status === "not_started" && <Pressable onPress={() => removeStep(s)} hitSlop={8}><Ionicons name="trash-outline" size={18} color={colors.textLight} /></Pressable>}
                       </View>
-                    ) : null}
+                      </View>
+                      );
+                    })() : null}
                   </View>
                 );
               })}
@@ -505,6 +597,14 @@ const styles = StyleSheet.create({
   photoGrid: { flexDirection: "row", flexWrap: "wrap", gap: spacing.sm },
   photo: { width: 100, height: 100, borderRadius: radius.md, backgroundColor: colors.border },
   photoTag: { fontSize: font.xs, color: colors.textMuted, textAlign: "center", marginTop: 2, textTransform: "capitalize" },
+  label: { fontSize: font.xs, fontWeight: "700", color: colors.textMuted, textTransform: "uppercase", letterSpacing: 0.5 },
+  check: { flexDirection: "row", alignItems: "flex-start", gap: 8, paddingVertical: 3 },
+  checkText: { flex: 1, fontSize: font.sm, color: colors.text, lineHeight: 20 },
+  checkDone: { color: colors.textMuted, textDecorationLine: "line-through" },
+  link: { fontSize: font.sm, fontWeight: "700", color: colors.primary },
+  evidence: { width: 56, height: 56, borderRadius: radius.sm, backgroundColor: colors.border },
+  evidenceAdd: { width: 56, height: 56, borderRadius: radius.sm, borderWidth: 1, borderStyle: "dashed", borderColor: colors.primary, alignItems: "center", justifyContent: "center", gap: 2 },
+  evidenceAddText: { fontSize: 10, fontWeight: "700", color: colors.primary },
   modalWrap: { flex: 1, backgroundColor: "rgba(22,49,68,0.55)", justifyContent: "flex-end" },
   modalCard: { backgroundColor: colors.card, borderTopLeftRadius: radius.lg, borderTopRightRadius: radius.lg, padding: spacing.lg, gap: spacing.md },
   modalTitle: { fontSize: font.h3, fontWeight: "800", color: colors.text },
