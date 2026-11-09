@@ -13,7 +13,7 @@ import { colors, font, radius, spacing } from "@/constants/theme";
 import api from "@/lib/api";
 import { onNotice } from "@/lib/push";
 import { Presence, checkIn, checkOut, getPresence, onSite } from "@/lib/attendance";
-import { formatDate, mediaUrl } from "@/lib/format";
+import { dayLabel, formatDate, mediaUrl, timeOnly } from "@/lib/format";
 import { getCurrentLocation, requestForegroundLocationPermission } from "@/lib/location";
 import { Op, QUEUED_NOTE, cached, discard, isNetworkError, pendingFor, submit } from "@/lib/offline";
 import { asFile, asUpload, pickFromLibrary, takePhoto } from "@/lib/photos";
@@ -46,6 +46,8 @@ interface Purchase {
 type Upload = ReturnType<typeof asUpload>;
 interface Visit {
   id: string; sequence: number; status: string; status_display: string; assigned_to: string | null; due_date: string | null;
+  /** Work stopped for now (overnight, waiting on something): since when. */
+  paused_since?: string | null;
   assigned_to_name?: string | null;
   helpers?: string[]; helper_names?: string[];
   started_at: string | null; completed_at: string | null; remarks: string; notes?: string; resolved: boolean | null;
@@ -131,7 +133,7 @@ function VisitLog({ v, parts, corrective }: { v: Visit; parts: Part[]; correctiv
       ) : null}
       {bought.length ? (
         <View style={styles.logBlock}>
-          <FieldLabel>Visit Costs</FieldLabel>
+          <FieldLabel>Paid by the technician</FieldLabel>
           {bought.map((p) => (
             <Text key={p.id} style={styles.logText}>
               {p.kind && p.kind !== "part" ? `${kindLabel(p.kind)}: ` : ""}{p.description} × {p.quantity} · {money(Number(p.amount))}{p.shop ? ` · ${p.shop}` : ""}
@@ -473,6 +475,24 @@ export default function JobScreen() {
     });
     said(r.queued, "Work started");
   }, "Could not start this visit");
+  // Stop the clock on the work and pick it up later - overnight, or
+  // waiting on a part - so the man-hours are only the hours worked.
+  const pauseWork = () => run("pause", async () => {
+    if (!current) return;
+    const r = await submit({
+      kind: "pause", scope: `job:${id}`, label: "Pause work",
+      method: "post", url: `/maintenance/visits/${current.id}/pause/`, json: {}, meta: { visit: current.id },
+    });
+    said(r.queued, "Work paused");
+  }, "Could not pause the work");
+  const resumeWork = () => run("resume", async () => {
+    if (!current) return;
+    const r = await submit({
+      kind: "resume", scope: `job:${id}`, label: "Resume work",
+      method: "post", url: `/maintenance/visits/${current.id}/resume/`, json: {}, meta: { visit: current.id },
+    });
+    said(r.queued, "Work resumed");
+  }, "Could not resume the work");
   const saveNotes = () => run("notes", async () => {
     if (!current) return;
     const r = await submit({
@@ -675,12 +695,20 @@ export default function JobScreen() {
               {stage === 5 && canAct ? <Button title="Start work" icon="play" loading={busy === "start"} onPress={start} /> : null}
             </FlowStep>
             <FlowStep n={6} title="Work done" state={workDone || awaiting ? "done" : stage === 6 ? "now" : "later"}>
-              {(started || awaiting) ? (
+              {started && current?.paused_since && !workDone ? (
+                <>
+                  <Note tone="warn">
+                    {`Work paused since ${dayLabel(current.paused_since)}, ${timeOnly(current.paused_since)}. The time it stays paused is not counted. Check out if you are leaving; resume when you are back.`}
+                  </Note>
+                  {canAct ? <Button title="Resume work" icon="play" loading={busy === "resume"} onPress={resumeWork} /> : null}
+                </>
+              ) : (started || awaiting) ? (
                 <>
                   <TextInput style={[styles.input, { height: 84, textAlignVertical: "top" }]} multiline editable={canAct && started && !workDone} placeholder={job.maintenance_type === "corrective" ? "What was done" : "What was checked, cleaned or replaced, and anything observed"} placeholderTextColor={colors.textLight} value={notes} onChangeText={setNotes} />
                   {canAct && started && !workDone ? (
                     <>
                       <Text style={styles.hint}>Both are needed before you check out: what was done, and the After photo.</Text>
+                      <Button title="Pause work" icon="pause" variant="secondary" loading={busy === "pause"} onPress={pauseWork} />
                       <Button
                         title={after ? "Save work done" : "Save and take the After photo"}
                         icon={after ? "checkmark" : "camera"}
@@ -726,7 +754,7 @@ export default function JobScreen() {
 
           {/* Visit Costs: parts bought on site, and the visit's other costs */}
           {current ? (
-            <Section title="Visit Costs">
+            <Section title="Paid by the technician">
               {(current.purchases ?? []).length === 0 ? (
                 <Text style={styles.hint}>No costs recorded for this visit.</Text>
               ) : (current.purchases ?? []).map((p) => (
