@@ -606,7 +606,7 @@ export default function JobScreen() {
                   <View style={{ flex: 1, gap: 2 }}>
                     <Text style={styles.partName}>{p.what}</Text>
                     <Text style={styles.hint}>
-                      {p.unit_type ? "Unique item" : "Stock item"} · Asked {p.quantity_requested} {p.unit}
+                      {p.unit_type ? "Unique item" : "Generic item"} · Asked {p.quantity_requested} {p.unit}
                       {p.status === "approved" && p.quantity_approved != null ? ` · Approved ${p.quantity_approved} ${p.unit}` : ""}
                     </Text>
                     {storeLine(p) ? <Text style={styles.hint}>{storeLine(p)}</Text> : null}
@@ -777,7 +777,7 @@ export default function JobScreen() {
                 <FieldLabel>Kind</FieldLabel>
                 <Select
                   value={partForm?.kind ?? "generic"}
-                  options={[{ id: "generic", label: "Stock item" }, { id: "unique", label: "Unique item" }]}
+                  options={[{ id: "generic", label: "Generic item" }, { id: "unique", label: "Unique item" }]}
                   onChange={(k) => setPartForm((f) => f && { ...f, kind: k as "generic" | "unique", pick: "" })}
                 />
               </View>
@@ -786,7 +786,7 @@ export default function JobScreen() {
                 <Select
                   value={partForm?.pick ?? ""}
                   options={(stock ?? []).filter((o) => (partForm?.kind === "unique" ? o.kind === "product" : o.kind === "item")).map((o) => ({ id: o.id, label: o.label }))}
-                  placeholder={!stock ? "Loading…" : partForm?.kind === "unique" ? "Search unique items…" : "Search stock items…"}
+                  placeholder={!stock ? "Loading…" : partForm?.kind === "unique" ? "Search unique items…" : "Search generic items…"}
                   onChange={(id) => setPartForm((f) => f && { ...f, pick: id })}
                   searchable
                 />
