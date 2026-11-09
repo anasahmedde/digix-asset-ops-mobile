@@ -5,7 +5,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { colors } from "@/constants/theme";
 import api from "@/lib/api";
-import { registerForPush, setupNotificationTapHandler } from "@/lib/push";
+import { registerForPush, setupNotificationTapHandler, watchNotices } from "@/lib/push";
 
 /**
  * Five tabs, all field work: what is on today, the jobs, the scanner, the
@@ -34,7 +34,8 @@ export default function TabLayout() {
   useEffect(() => {
     registerForPush();
     const unsubscribe = setupNotificationTapHandler();
-    return unsubscribe;
+    const unwatch = watchNotices();
+    return () => { unsubscribe(); unwatch(); };
   }, []);
 
   return (

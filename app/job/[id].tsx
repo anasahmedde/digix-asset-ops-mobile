@@ -1,5 +1,5 @@
 import { Ionicons } from "@expo/vector-icons";
-import { router, useLocalSearchParams } from "expo-router";
+import { router, useFocusEffect, useLocalSearchParams } from "expo-router";
 import { useCallback, useEffect, useState } from "react";
 import { Image, Modal, Pressable, RefreshControl, ScrollView, StyleSheet, TextInput, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
@@ -11,6 +11,7 @@ import { Text } from "@/components/text";
 import { Button, Card, FieldLabel, Pill, Row, Select } from "@/components/ui";
 import { colors, font, radius, spacing } from "@/constants/theme";
 import api from "@/lib/api";
+import { onNotice } from "@/lib/push";
 import { Presence, checkIn, checkOut, getPresence, onSite } from "@/lib/attendance";
 import { formatDate, mediaUrl } from "@/lib/format";
 import { getCurrentLocation, requestForegroundLocationPermission } from "@/lib/location";
@@ -264,6 +265,13 @@ export default function JobScreen() {
     load();
     getCurrentUser().then((u) => setMe({ id: u.id })).catch(() => {});
   }, [load]);
+  // The office answers parts and reviews from the website: a notice reloads
+  // the job, and it refreshes itself while it is open.
+  useEffect(() => onNotice(load), [load]);
+  useFocusEffect(useCallback(() => {
+    const t = setInterval(load, 20000);
+    return () => clearInterval(t);
+  }, [load]));
 
   const fail = (err: unknown, fallback: string) => {
     if (isNetworkError(err)) { toast.error("No signal. This one needs a connection - try again when you have one."); return; }
