@@ -16,6 +16,8 @@ const CATEGORIES = ["repair", "replacement", "warranty_claim", "preventive_maint
 // Moving an asset along its lifecycle is a capability on the desktop; the
 // field app asks the same question rather than keeping its own role list.
 const MOVE_STAGE = "move_asset_stage";
+// Same as the website: every other status follows from the work itself.
+const MANUAL_STATUSES = ["client_property", "decommissioned"];
 const PRIORITIES = ["low", "medium", "high", "critical"];
 const WARRANTY_TONE: Record<string, { fg: string; bg: string; label: string }> = {
   active: { fg: "#047857", bg: colors.successSoft, label: "Under Warranty" },
@@ -133,11 +135,11 @@ export default function AssetDetailScreen() {
             <Row label="Client" value={device.client_name || "—"} />
           </Card>
 
-          {can.includes(MOVE_STAGE) && allowed.length > 0 ? (
+          {can.includes(MOVE_STAGE) && allowed.some((st) => MANUAL_STATUSES.includes(st)) ? (
             <Card style={{ marginTop: spacing.lg }}>
               <Text style={styles.instTitle}>Change status</Text>
               <View style={styles.pillRow}>
-                {allowed.map((st) => (
+                {allowed.filter((st) => MANUAL_STATUSES.includes(st)).map((st) => (
                   <Pressable key={st} onPress={() => setTransitionTo(st)} style={styles.selPill}>
                     <Text style={styles.selPillText}>{labelize(st)}</Text>
                   </Pressable>
