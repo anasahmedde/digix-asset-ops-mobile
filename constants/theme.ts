@@ -90,7 +90,6 @@ export const STATUS_TONES: Record<string, Tone> = {
   in_stock: { fg: "#2563eb", bg: colors.infoSoft },
   under_maintenance: { fg: "#b45309", bg: colors.warningSoft },
   decommissioned: { fg: "#475569", bg: "#eef1f5" },
-  lost_stolen: { fg: "#dc2626", bg: colors.dangerSoft },
 };
 
 export const PRIORITY_TONES: Record<string, Tone> = {
