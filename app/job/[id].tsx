@@ -6,6 +6,7 @@ import { SafeAreaView } from "react-native-safe-area-context";
 
 import { FlowStep, Note, PresenceCard, Section, Wash } from "@/components/field";
 import { OutboxBanner } from "@/components/outbox-banner";
+import { BuyForm, Purchase, PurchaseSheet, buyError, buyUpload, emptyBuy, kindLabel, money } from "@/components/purchase-sheet";
 import { ScanSheet } from "@/components/scan-sheet";
 import { Text } from "@/components/text";
 import { Button, Card, FieldLabel, Pill, Row, Select } from "@/components/ui";
@@ -16,7 +17,7 @@ import { Presence, checkIn, checkOut, getPresence, onSite } from "@/lib/attendan
 import { dayLabel, formatDate, mediaUrl, timeOnly } from "@/lib/format";
 import { getCurrentLocation, requestForegroundLocationPermission } from "@/lib/location";
 import { Op, QUEUED_NOTE, cached, discard, isNetworkError, pendingFor, submit } from "@/lib/offline";
-import { asFile, asUpload, pickFromLibrary, takePhoto } from "@/lib/photos";
+import { asFile, takePhoto } from "@/lib/photos";
 import * as SecureStore from "@/lib/secure-store";
 import { toast } from "@/lib/toast";
 import { getCurrentUser } from "@/lib/user";
@@ -37,13 +38,6 @@ interface Schedule {
   ticket: string | null; ticket_number: string | null; ticket_description?: string | null; next_due?: string | null;
 }
 interface VisitPhoto { id: string; kind: string; image: string; caption: string }
-/** A cost of the visit the technician paid: a part bought on site (receipt and
- *  a photo of the part), or travel, labour, hire or another expense. */
-interface Purchase {
-  id: string; kind?: string; kind_display?: string; description: string; quantity: number; amount: string; shop: string;
-  receipt: string; photo: string; bought_by: string | null; bought_by_name: string | null; created_at: string;
-}
-type Upload = ReturnType<typeof asUpload>;
 interface Visit {
   id: string; sequence: number; status: string; status_display: string; assigned_to: string | null; due_date: string | null;
   /** Work stopped for now (overnight, waiting on something): since when. */
@@ -71,14 +65,6 @@ interface StockOption { id: string; kind: "item" | "product"; name: string; unit
 const when = (iso?: string | null) => (iso
   ? new Date(iso).toLocaleString(undefined, { day: "numeric", month: "short", year: "numeric", hour: "numeric", minute: "2-digit" })
   : "—");
-/** What a visit cost can be, as the web names them. */
-const COST_KINDS = [
-  { id: "part", label: "Part bought" }, { id: "travel", label: "Travel & fuel" }, { id: "labour", label: "Labour" },
-  { id: "hire", label: "Equipment hire" }, { id: "other", label: "Other expense" },
-];
-const kindLabel = (k?: string) => COST_KINDS.find((c) => c.id === k)?.label ?? "Part bought";
-
-const money = (n: number) => `PKR ${n.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 
 /** One earlier visit, as it happened: who, when, what was found and done, what it used, and what the office said. */
 function VisitLog({ v, parts, corrective }: { v: Visit; parts: Part[]; corrective: boolean }) {
@@ -217,10 +203,7 @@ export default function JobScreen() {
   const [leaving, setLeaving] = useState<{ resolved: boolean | null } | null>(null);
   const [giveBack, setGiveBack] = useState<{ used: Record<string, string>; back: Record<string, string[]> } | null>(null);
   // Bought on site: the form, and the question asked at check-out.
-  const [buy, setBuy] = useState<{
-    kind: string; description: string; quantity: string; amount: string; shop: string;
-    receipt: Upload | null; receiptName: string; photo: Upload | null;
-  } | null>(null);
+  const [buy, setBuy] = useState<BuyForm | null>(null);
   // "No components needed" for this visit. The server has nothing to keep it
   // on - nothing asked for is what it records - so the phone remembers it.
   const [noneNeeded, setNoneNeeded] = useState(false);
@@ -380,38 +363,21 @@ export default function JobScreen() {
         : issued.length ? "Checked out and sent for review · now return unused components" : "Checked out and sent for review");
     }, "Could not check out");
   };
-  const openBuy = () => {
-    setBuy({ kind: "part", description: "", quantity: "1", amount: "", shop: "", receipt: null, receiptName: "", photo: null });
-  };
+  const openBuy = () => setBuy(emptyBuy());
   const saveBuy = () => {
     if (!buy || !current) return;
-    const part = buy.kind === "part";
-    if (!buy.description.trim()) { toast.error(part ? "Say what you bought" : "Say what it was for"); return; }
-    const amount = Number(buy.amount);
-    if (!amount || amount <= 0) { toast.error(part ? "Enter the amount on the receipt" : "Enter what it came to"); return; }
-    // A part needs the receipt and a photo of it; another cost keeps a receipt only if there is one.
-    if (part && !buy.receipt) { toast.error("Add the receipt"); return; }
-    if (part && !buy.photo) { toast.error("Take a photo of the component"); return; }
+    const wrong = buyError(buy);
+    if (wrong) { toast.error(wrong); return; }
     const f = buy;
     setBuy(null);
     run("buy", async () => {
-      const quantity = f.kind === "part" ? Math.max(1, Number(f.quantity) || 1) : 1;
+      const up = buyUpload(f, { visit: current.id });
       const r = await submit({
         kind: "purchase", scope: `job:${id}`, label: `${kindLabel(f.kind)}: ${f.description.trim()}`,
-        method: "post", url: "/maintenance/purchases/",
-        form: {
-          fields: {
-            visit: current.id, kind: f.kind, description: f.description.trim(), quantity: String(quantity),
-            amount: amount.toFixed(2), ...(f.shop.trim() ? { shop: f.shop.trim() } : {}),
-          },
-          files: [
-            ...(f.receipt ? [{ ...(f.receipt as unknown as { uri: string; name: string; type: string }), field: "receipt" }] : []),
-            ...(f.photo ? [{ ...(f.photo as unknown as { uri: string; name: string; type: string }), field: "photo" }] : []),
-          ],
-        },
+        method: "post", url: "/maintenance/purchases/", form: up.form,
         meta: {
           visit: current.id,
-          purchase: { kind: f.kind, description: f.description.trim(), quantity, amount: amount.toFixed(2), shop: f.shop.trim(), bought_by: me?.id ?? null, bought_by_name: null },
+          purchase: { kind: f.kind, description: f.description.trim(), quantity: up.quantity, amount: up.amount, shop: f.shop.trim(), bought_by: me?.id ?? null, bought_by_name: null },
         },
       });
       said(r.queued, "Cost recorded");
@@ -881,79 +847,8 @@ export default function JobScreen() {
         </Modal>
 
         {/* Record a purchase */}
-        <Modal visible={!!buy} transparent animationType="slide" onRequestClose={() => setBuy(null)}>
-          <View style={styles.modalWrap}>
-            <View style={styles.modalCard}>
-              <Text style={styles.modalTitle}>Record a cost</Text>
-              <ScrollView style={{ maxHeight: 460 }} keyboardShouldPersistTaps="handled" contentContainerStyle={{ gap: spacing.md }}>
-                <View>
-                  <FieldLabel>What for</FieldLabel>
-                  <View style={styles.kindRow}>
-                    {COST_KINDS.map((k) => (
-                      <Pressable key={k.id} onPress={() => setBuy((f) => f && { ...f, kind: k.id })}
-                        style={[styles.kindChip, buy?.kind === k.id && styles.kindChipOn]}>
-                        <Text style={[styles.kindText, buy?.kind === k.id && { color: "#fff" }]}>{k.label}</Text>
-                      </Pressable>
-                    ))}
-                  </View>
-                </View>
-                <View>
-                  <FieldLabel>{buy?.kind === "part" ? "Component details" : "Details"}</FieldLabel>
-                  <TextInput style={styles.input}
-                    placeholder={buy?.kind === "part" ? "What it is: make, model, size" : "e.g. Fuel to site and back, two helpers for the day"}
-                    placeholderTextColor={colors.textLight}
-                    value={buy?.description ?? ""} onChangeText={(t) => setBuy((f) => f && { ...f, description: t })} />
-                </View>
-                <View style={{ flexDirection: "row", gap: 8 }}>
-                  {buy?.kind === "part" ? (
-                  <View style={{ width: 96 }}>
-                    <FieldLabel>Quantity</FieldLabel>
-                    <TextInput style={styles.input} keyboardType="number-pad" value={buy?.quantity ?? ""}
-                      onChangeText={(t) => setBuy((f) => f && { ...f, quantity: t })} />
-                  </View>
-                  ) : null}
-                  <View style={{ flex: 1 }}>
-                    <FieldLabel>Amount paid (PKR)</FieldLabel>
-                    <TextInput style={styles.input} keyboardType="decimal-pad" placeholder={buy?.kind === "part" ? "As on the receipt" : "What it came to"} placeholderTextColor={colors.textLight}
-                      value={buy?.amount ?? ""} onChangeText={(t) => setBuy((f) => f && { ...f, amount: t })} />
-                  </View>
-                </View>
-                <View>
-                  <FieldLabel>{buy?.kind === "part" ? "Shop" : "Paid to"}</FieldLabel>
-                  <TextInput style={styles.input} placeholder={buy?.kind === "part" ? "Where it was bought (optional)" : "Who was paid (optional)"} placeholderTextColor={colors.textLight}
-                    value={buy?.shop ?? ""} onChangeText={(t) => setBuy((f) => f && { ...f, shop: t })} />
-                </View>
-                <View style={{ gap: 6 }}>
-                  <FieldLabel>{buy?.kind === "part" ? "Receipt" : "Receipt (if there is one)"}</FieldLabel>
-                  <View style={{ flexDirection: "row", gap: 8 }}>
-                    <Button title="Photograph" small variant="secondary" icon="camera-outline" style={{ flex: 1 }}
-                      onPress={async () => { const a = await takePhoto(); if (a) setBuy((f) => f && { ...f, receipt: asUpload(a, "receipt.jpg"), receiptName: "photo taken" }); }} />
-                    <Button title="Pick a file" small variant="secondary" icon="folder-open-outline" style={{ flex: 1 }}
-                      onPress={async () => { const a = await pickFromLibrary(); if (a) setBuy((f) => f && { ...f, receipt: asUpload(a, "receipt.jpg"), receiptName: a.fileName ?? "file chosen" }); }} />
-                  </View>
-                  {buy?.receipt ? <Text style={[styles.hint, { color: "#047857" }]}>Receipt attached: {buy.receiptName}</Text> : null}
-                </View>
-                {buy?.kind === "part" ? (
-                <View style={{ gap: 6 }}>
-                  <FieldLabel>Component photo</FieldLabel>
-                  <Button title={buy?.photo ? "Retake the photo" : "Take a photo of the component"} small variant="secondary" icon="camera"
-                    onPress={async () => { const a = await takePhoto(); if (a) setBuy((f) => f && { ...f, photo: asUpload(a, "component.jpg") }); }} />
-                  {buy?.photo ? <Text style={[styles.hint, { color: "#047857" }]}>Photo taken</Text> : null}
-                </View>
-                ) : null}
-              </ScrollView>
-              <Text style={styles.hint}>
-                {buy?.kind === "part"
-                  ? "All four are needed: what it is, the amount, the receipt and the photo."
-                  : "It is added to this visit's cost, and so to what the asset has cost, when the office accepts the visit."}
-              </Text>
-              <View style={styles.modalActions}>
-                <Button title="Cancel" small variant="secondary" onPress={() => setBuy(null)} />
-                <Button title="Save cost" small icon="checkmark" onPress={saveBuy} />
-              </View>
-            </View>
-          </View>
-        </Modal>
+        <PurchaseSheet buy={buy} setBuy={setBuy} onSave={saveBuy}
+          after="It is added to this visit's cost, and so to what the asset has cost, when the office accepts the visit." />
 
         {/* Return unused components: the web's "Components issued for this visit" */}
         <Modal visible={!!giveBack} transparent animationType="slide" onRequestClose={() => setGiveBack(null)}>
@@ -1037,10 +932,6 @@ const styles = StyleSheet.create({
   logText: { fontSize: font.sm, color: colors.text, lineHeight: 19 },
   logPhoto: { width: 72, height: 72, borderRadius: radius.sm, backgroundColor: colors.border },
   buyThumb: { width: 48, height: 48, borderRadius: radius.sm, backgroundColor: colors.border },
-  kindRow: { flexDirection: "row", flexWrap: "wrap", gap: 6 },
-  kindChip: { borderRadius: radius.pill, paddingHorizontal: 12, paddingVertical: 7, backgroundColor: colors.secondary },
-  kindChipOn: { backgroundColor: colors.primary },
-  kindText: { fontSize: font.xs, fontWeight: "700", color: colors.text },
   settle: { gap: 6, paddingTop: 8, borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: colors.border },
   serial: { borderRadius: radius.pill, paddingHorizontal: 10, paddingVertical: 5, backgroundColor: colors.secondary },
   serialOn: { backgroundColor: colors.primary },

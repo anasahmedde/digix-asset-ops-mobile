@@ -6,14 +6,15 @@ import { SafeAreaView } from "react-native-safe-area-context";
 
 import { FlowStep, Note, PresenceCard, Section, Wash } from "@/components/field";
 import { OutboxBanner } from "@/components/outbox-banner";
+import { BuyForm, Purchase, PurchaseSheet, buyError, buyUpload, emptyBuy, kindLabel, money } from "@/components/purchase-sheet";
 import { ScanSheet } from "@/components/scan-sheet";
 import { Text } from "@/components/text";
 import { Button, Card, FieldLabel, Pill, Row, Select } from "@/components/ui";
 import { colors, font, radius, spacing } from "@/constants/theme";
 import api from "@/lib/api";
 import { Presence, checkIn, checkOut, getPresence, onSite } from "@/lib/attendance";
-import { mediaUrl } from "@/lib/format";
-import { Op, QUEUED_NOTE, cached, isNetworkError, pendingFor, submit } from "@/lib/offline";
+import { dayLabel, mediaUrl, timeOnly } from "@/lib/format";
+import { Op, QUEUED_NOTE, cached, discard, isNetworkError, pendingFor, submit } from "@/lib/offline";
 import { asFile, asUpload, pickFromLibrary, takePhoto } from "@/lib/photos";
 import { toast } from "@/lib/toast";
 import { getCurrentUser } from "@/lib/user";
@@ -49,6 +50,11 @@ interface Installation {
   client_names?: string[]; handover: Handover | null; steps: Step[]; photos: Photo[];
   helpers?: string[]; helper_names?: string[];
   asset_verified_at: string | null; delays?: Delay[];
+  /** Work stopped for now (overnight, waiting on something): since when. */
+  paused_since?: string | null;
+  /** What the crew paid for the job, and the cost once the supervisor records it. */
+  purchases?: Purchase[];
+  cost_recorded_at?: string | null;
 }
 
 /** The web's "Caused by" list. */
@@ -93,6 +99,14 @@ function overlay(inst: Installation, waiting: Op[]): Installation {
     } else if (op.kind === "activate") {
       out.device_status = "active";
       out.photos.push({ id: op.id, photo_type: "post_install", image: file("photos"), caption: "" });
+    } else if (op.kind === "pause") {
+      out.paused_since = op.at;
+    } else if (op.kind === "resume") {
+      out.paused_since = null;
+    } else if (op.kind === "purchase") {
+      out.purchases = [...(out.purchases ?? []), {
+        ...(op.meta?.purchase as Purchase), id: op.id, receipt: file("receipt"), photo: file("photo"), created_at: op.at,
+      }];
     } else if (op.kind === "handover") {
       out.handover = {
         id: op.id, handover_date: op.at.slice(0, 10), accepted_by_name: String(op.meta?.accepted_by_name ?? ""),
@@ -123,6 +137,11 @@ export default function InstallationScreen() {
   // The web's Flag Delay form; Hold uses it too and then puts the step on hold.
   const [delayFor, setDelayFor] = useState<{ step: Step; label: string; hold: boolean; cause: string; note: string } | null>(null);
   const [handoverForm, setHandoverForm] = useState<{ name: string; notes: string; doc: ReturnType<typeof asUpload> | null; docName: string } | null>(null);
+  // Leaving the site: first, was anything bought for this job?
+  const [leaving, setLeaving] = useState(false);
+  const [buy, setBuy] = useState<BuyForm | null>(null);
+  // What is still on the phone, waiting for signal.
+  const [waitingIds, setWaitingIds] = useState<Set<string>>(new Set());
 
   const load = useCallback(async () => {
     try {
@@ -131,7 +150,9 @@ export default function InstallationScreen() {
         getPresence(),
       ]);
       if (i.status === "fulfilled") {
-        setInst(overlay(i.value.data, await pendingFor(`inst:${id}`)));
+        const waiting = await pendingFor(`inst:${id}`);
+        setWaitingIds(new Set(waiting.map((o) => o.id)));
+        setInst(overlay(i.value.data, waiting));
         setStale(!i.value.fresh);
       }
       if (p.status === "fulfilled") setPresence(p.value);
@@ -180,8 +201,13 @@ export default function InstallationScreen() {
   // Finished: every step done, or handed over to the client (a job whose
   // steps were all skipped was never stamped complete before the handover).
   const finished = !!inst.completed_at || !!inst.handover;
-  const canAct = mine && here && verified && !finished;
   const workSteps = inst.steps.filter((s) => s.step_type !== "handover");
+  // Paused: the steps wait until the work is resumed, so the paused time is
+  // not counted in the man-hours.
+  const started = workSteps.some((s) => !!s.started_at);
+  const paused = !!inst.paused_since;
+  const canAct = mine && here && verified && !finished && !paused;
+  const costSettled = !!inst.cost_recorded_at;
   const allDone = workSteps.length > 0 && workSteps.every((s) => s.status === "completed" || s.status === "skipped");
   const active = inst.device_status === "active" || inst.photos.some((p) => p.photo_type === "post_install") && allDone && !!inst.handover;
   const isLive = inst.device_status ? inst.device_status === "active" || inst.device_status === "client_property" : active;
@@ -305,8 +331,42 @@ export default function InstallationScreen() {
   const clockOut = () => run("presence", async () => {
     const p = await checkOut(inst.site);
     setPresence(p);
-    said(!!p.queued, "Checked out");
+    said(!!p.queued, started && !finished && !paused ? "Checked out · the work is paused until you are back" : "Checked out");
   }, "Could not check out");
+  // The installer is asked about purchases on the way out; anyone else just leaves.
+  const askOnCheckout = () => { if (mine && !costSettled) setLeaving(true); else clockOut(); };
+  const leave = () => { setLeaving(false); clockOut(); };
+  // Stop the clock on the work and pick it up later - overnight, or waiting
+  // on something - so the man-hours are only the hours worked.
+  const pauseOrResume = (what: "pause" | "resume") => run(what, async () => {
+    const r = await submit({
+      kind: what, scope: `inst:${id}`, label: what === "pause" ? "Pause work" : "Resume work",
+      method: "post", url: `/sites/installations/${inst.id}/${what}/`, json: {},
+    });
+    said(r.queued, what === "pause" ? "Work paused" : "Work resumed");
+  }, what === "pause" ? "Could not pause the work" : "Could not resume the work");
+  const saveBuy = () => {
+    if (!buy) return;
+    const wrong = buyError(buy);
+    if (wrong) { toast.error(wrong); return; }
+    const f = buy;
+    setBuy(null);
+    run("buy", async () => {
+      const up = buyUpload(f, { installation: inst.id });
+      const r = await submit({
+        kind: "purchase", scope: `inst:${id}`, label: `${kindLabel(f.kind)}: ${f.description.trim()}`,
+        method: "post", url: "/sites/installation-purchases/", form: up.form,
+        meta: { purchase: { kind: f.kind, description: f.description.trim(), quantity: up.quantity, amount: up.amount, shop: f.shop.trim(), bought_by: me?.id ?? null, bought_by_name: null } },
+      });
+      said(r.queued, "Cost recorded");
+    }, "Could not record the purchase");
+  };
+  const removeBuy = (b: Purchase) => run(`buy-${b.id}`, async () => {
+    // Still on the phone: it simply never goes.
+    if (waitingIds.has(b.id)) await discard(b.id);
+    else await api.delete(`/sites/installation-purchases/${b.id}/`);
+    toast.success("Purchase taken back");
+  }, "Could not take the purchase back");
 
   return (
     <Wash>
@@ -336,7 +396,7 @@ export default function InstallationScreen() {
 
           {/* A finished job asks nobody to check in; whoever is still on site can check out. */}
           {!finished || here ? (
-            <PresenceCard presence={presence} site={inst.site} siteName={inst.site_name} mine={mine || helping} busy={busy === "presence"} onCheckIn={clockIn} onCheckOut={clockOut} />
+            <PresenceCard presence={presence} site={inst.site} siteName={inst.site_name} mine={mine || helping} busy={busy === "presence"} onCheckIn={clockIn} onCheckOut={askOnCheckout} />
           ) : null}
           <ScanSheet open={scan} expect={inst.device_code} onScan={verify} onClose={() => setScan(false)} />
 
@@ -360,6 +420,16 @@ export default function InstallationScreen() {
 
             {/* 3 Steps */}
             <FlowStep n={3} title="Installation Steps" state={allDone ? "done" : stage === 3 ? "now" : "later"}>
+              {mine && here && verified && started && !finished && paused ? (
+                <>
+                  <Note tone="warn">{`Work paused since ${dayLabel(inst.paused_since!)}, ${timeOnly(inst.paused_since!)}. The time it stays paused is not counted. Resume to carry on with the steps.`}</Note>
+                  <Button title="Resume work" icon="play" loading={busy === "resume"} onPress={() => pauseOrResume("resume")} />
+                </>
+              ) : null}
+              {canAct && started && !allDone ? (
+                <Button title="Pause work" small variant="secondary" icon="pause" loading={busy === "pause"} onPress={() => pauseOrResume("pause")} />
+              ) : null}
+              {!mine && paused && !finished ? <Note tone="warn">Work paused - the installer resumes it.</Note> : null}
               {workSteps.map((s, idx) => {
                 const tone = STEP_TONE[s.status] ?? STEP_TONE.not_started;
                 return (
@@ -481,8 +551,30 @@ export default function InstallationScreen() {
 
             {/* 6 Check out */}
             <FlowStep n={6} title="Check out" state={stage === 6 && !here ? "done" : stage === 6 ? "now" : "later"}>
-              {stage === 6 && here ? <Button title="Check out of the site" icon="log-out-outline" variant="secondary" loading={busy === "presence"} onPress={clockOut} /> : null}
+              {stage === 6 && here ? <Button title="Check out of the site" icon="log-out-outline" variant="secondary" loading={busy === "presence"} onPress={askOnCheckout} /> : null}
             </FlowStep>
+          </Section>
+
+          {/* What the crew paid for this job: parts bought on site, travel, labour, hire. */}
+          <Section title="Paid by the technician">
+            {(inst.purchases ?? []).length === 0 ? (
+              <Text style={styles.hint}>No costs recorded for this installation.</Text>
+            ) : (inst.purchases ?? []).map((b) => (
+              <View key={b.id} style={styles.buyRow}>
+                {b.photo ? <Image source={{ uri: b.photo.startsWith("file:") ? b.photo : mediaUrl(b.photo) }} style={styles.buyThumb} /> : null}
+                <View style={{ flex: 1, gap: 2 }}>
+                  <Text style={styles.stepName}>{b.kind && b.kind !== "part" ? `${kindLabel(b.kind)}: ` : ""}{b.description}</Text>
+                  <Text style={styles.hint}>{b.quantity} · {b.amount == null ? "—" : money(Number(b.amount))}{b.shop ? ` · ${b.shop}` : ""}</Text>
+                </View>
+                {mine && !costSettled && me?.id === b.bought_by ? (
+                  <Pressable onPress={() => removeBuy(b)} hitSlop={8}><Text style={styles.withdraw}>Remove</Text></Pressable>
+                ) : null}
+              </View>
+            ))}
+            {mine && !costSettled ? (
+              <Button title="Record a cost" small variant="secondary" icon="cash-outline" loading={busy === "buy"} onPress={() => setBuy(emptyBuy())} />
+            ) : null}
+            {costSettled ? <Text style={styles.hint}>The supervisor has recorded this installation&apos;s cost.</Text> : null}
           </Section>
 
           {/* The photos this job already holds - the asset running, the
@@ -555,6 +647,34 @@ export default function InstallationScreen() {
           </View>
         </Modal>
 
+        {/* Check out: was anything bought for this job? */}
+        <Modal visible={leaving && !buy} transparent animationType="slide" onRequestClose={() => setLeaving(false)}>
+          <View style={styles.modalWrap}>
+            <View style={styles.modalCard}>
+              <Text style={styles.modalTitle}>Check out</Text>
+              {started && !finished && !paused ? (
+                <Note tone="warn">The work is not finished, so checking out pauses it. Check in and resume when you are back.</Note>
+              ) : null}
+              <View style={{ gap: 6 }}>
+                <FieldLabel>Did you purchase anything for this job?</FieldLabel>
+                <Text style={styles.hint}>A component bought in the market is recorded against the job with its receipt, the amount and a photo.</Text>
+                {(inst.purchases ?? []).map((b) => (
+                  <Text key={b.id} style={styles.hint}>· {b.description} × {b.quantity} — {b.amount == null ? "—" : money(Number(b.amount))}</Text>
+                ))}
+                <Button title={(inst.purchases ?? []).length ? "Yes, record another" : "Yes, record it"} small variant="secondary" icon="cart-outline" onPress={() => setBuy(emptyBuy())} />
+              </View>
+              <View style={styles.modalActions}>
+                <Button title="Cancel" small variant="secondary" onPress={() => setLeaving(false)} />
+                <Button title={(inst.purchases ?? []).length ? "That is all, check out" : "No, check out"} small variant="success" icon="log-out-outline" onPress={leave} />
+              </View>
+            </View>
+          </View>
+        </Modal>
+
+        {/* Record a purchase */}
+        <PurchaseSheet buy={buy} setBuy={setBuy} onSave={saveBuy}
+          after="It is added to this installation's cost when the supervisor records it." />
+
         {/* Handover */}
         <Modal visible={!!handoverForm} transparent animationType="slide" onRequestClose={() => setHandoverForm(null)}>
           <View style={styles.modalWrap}>
@@ -613,5 +733,8 @@ const styles = StyleSheet.create({
   typeChip: { borderRadius: radius.pill, paddingHorizontal: 12, paddingVertical: 7, backgroundColor: colors.secondary },
   typeChipOn: { backgroundColor: colors.primary },
   typeText: { fontSize: font.xs, fontWeight: "700", color: colors.text },
+  buyRow: { flexDirection: "row", alignItems: "center", gap: spacing.sm, paddingVertical: 10, borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: colors.border },
+  buyThumb: { width: 48, height: 48, borderRadius: radius.sm, backgroundColor: colors.border },
+  withdraw: { fontSize: font.sm, fontWeight: "700", color: colors.danger },
   input: { borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, paddingHorizontal: spacing.md, paddingVertical: 10, fontSize: font.body, color: colors.text, backgroundColor: colors.bg, fontFamily: "Urbanist_500Medium" },
 });
